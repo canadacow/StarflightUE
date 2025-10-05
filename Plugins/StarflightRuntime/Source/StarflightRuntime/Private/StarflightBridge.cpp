@@ -49,15 +49,19 @@ void StartStarflight()
 
 	// Start emulator thread
 	gWorker = std::thread([](){
-		InitEmulator("");  // Empty path for now, will need game data later
-		
+		// TODO: InitEmulator needs game data files - commented out for now
+		// InitEmulator("");  // Empty path for now, will need game data later
+
+		// For now, just run the graphics update loop without game logic
 		enum RETURNCODE ret = OK;
 		while (gRunning.load(std::memory_order_acquire) && !IsGraphicsShutdown())
 		{
-			ret = Step();
-			if (ret != OK && ret != EXIT) {
-				break;
-			}
+			// TODO: Uncomment when game data is available
+			// ret = Step();
+			// if (ret != OK && ret != EXIT) {
+			// 	break;
+			// }
+			std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
 		}
 	});
 
