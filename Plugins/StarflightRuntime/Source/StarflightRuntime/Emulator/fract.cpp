@@ -1392,7 +1392,7 @@ bool FractalGenerator::Initialize(const std::filesystem::path& planetDatabase)
     return true;
 }
 
-static uint32_t colortable[16] =
+static uint32_t fract_colortable[16] =
 {
 0x000000, // black
 0x0000AA, // blue
@@ -1413,13 +1413,13 @@ static uint32_t colortable[16] =
 };
 
 
-static uint32_t ToAlbedo(const uint8_t* palette, int val)
+static uint32_t FractToAlbedo(const uint8_t* palette, int val)
 {
     int c = val;
     c = c < 0 ? 0 : ((c >> 1) & 0x38);
     c = palette[c] & 0xF;
 
-    uint32_t argb = colortable[c & 0xf] | 0xFF000000;
+    uint32_t argb = fract_colortable[c & 0xf] | 0xFF000000;
     uint32_t abgr = ((argb & 0xFF000000)) | // Keep alpha as is
                     ((argb & 0xFF) << 16) | // Move red to third position
                     ((argb & 0xFF00)) | // Keep green as is
@@ -1457,7 +1457,7 @@ PlanetSurface FractalGenerator::GetPlanetSurface(uint16_t planetInstanceIndex)
         {
             int val = ps.native[t];
             ps.relief[t] = val + 128;
-            ps.albedo[t] = ToAlbedo(palette, val);
+            ps.albedo[t] = FractToAlbedo(palette, val);
             ++t;
         }
     }
@@ -1625,7 +1625,7 @@ FullResPlanetData FractalGenerator::GetFullResPlanetData(uint16_t planetInstance
 
                     int image_index = image_y * FractalGenerator::GetPlanetWidth() + image_x;
                     result.image[image_index] = val;
-                    result.albedo[image_index] = ToAlbedo(palette, val);
+                    result.albedo[image_index] = FractToAlbedo(palette, val);
                 }
             }
 

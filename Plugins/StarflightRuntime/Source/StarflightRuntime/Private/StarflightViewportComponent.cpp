@@ -40,11 +40,30 @@ void AStarflightHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void AStarflightHUD::OnFrame(const uint8* BGRA, int W, int H, int Pitch)
 {
 	FScopeLock Lock(&FrameMutex);
-	LatestFrame.SetNum(W * H * 4);
-	FMemory::Memcpy(LatestFrame.GetData(), BGRA, (SIZE_T)(H * Pitch));
-	LatestPitch = Pitch;
 	Width = W;
 	Height = H;
+	LatestPitch = Pitch;
+	
+	// Allocate buffer for the frame
+	LatestFrame.SetNum(W * H * 4);
+	
+	// Copy row by row if pitch != width * 4, otherwise copy directly
+	if (Pitch == W * 4)
+	{
+		FMemory::Memcpy(LatestFrame.GetData(), BGRA, W * H * 4);
+	}
+	else
+	{
+		// Copy row by row to handle pitch correctly
+		for (int y = 0; y < H; ++y)
+		{
+			FMemory::Memcpy(
+				LatestFrame.GetData() + y * W * 4,
+				BGRA + y * Pitch,
+				W * 4
+			);
+		}
+	}
 }
 
 void AStarflightHUD::UpdateTexture()

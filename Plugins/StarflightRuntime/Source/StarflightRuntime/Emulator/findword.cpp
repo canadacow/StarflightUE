@@ -12,7 +12,7 @@
 #include"callstack.h"
 
 // Stub constants - will need proper values from game data
-constexpr int FILESTAR0SIZE = 0x4000;
+const int FILESTAR0SIZE = 0x4000;
 
 // Stub overlay structure
 struct Overlay {
