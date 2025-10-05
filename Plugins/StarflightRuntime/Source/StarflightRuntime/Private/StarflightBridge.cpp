@@ -1,9 +1,16 @@
+// Disable warnings for emulator code
+#pragma warning(disable: 4883) // function size suppresses optimizations
+
 #include "StarflightBridge.h"
+#include "cpu/cpu.h"
+#include "call.h"
+#include "graphics.h"
 
 #include <atomic>
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <chrono>
 
 namespace
 {
@@ -12,10 +19,10 @@ namespace
 	AudioSinkFn gAudioSink;
 	std::atomic<bool> gRunning{ false };
 	std::thread gWorker;
+	std::thread gGraphicsThread;
 }
 
-// Forward declarations for internal emit helpers
-static inline void EmitFrame(const uint8_t* bgra, int w, int h, int pitch);
+// Forward declaration for internal emit helper
 static inline void EmitAudio(const int16_t* pcm, int frames, int rate, int channels);
 
 void SetFrameSink(FrameSinkFn cb)
@@ -34,45 +41,44 @@ void StartStarflight()
 {
 	gRunning.store(true, std::memory_order_release);
 
-	// Dummy 60Hz checkerboard generator to prove the pipeline
+	// Initialize graphics
+	GraphicsInit();
+
+	// Start emulator thread
 	gWorker = std::thread([](){
-        const int W = 640;
-        const int H = 360;
-        const int Pitch = W * 4;
-		std::vector<uint8_t> buffer(static_cast<size_t>(H) * Pitch);
-		int frame = 0;
-		while (gRunning.load(std::memory_order_acquire))
+		InitCPU();
+		InitEmulator("");  // Empty path for now, will need game data later
+		
+		enum RETURNCODE ret = OK;
+		while (gRunning.load(std::memory_order_acquire) && !IsGraphicsShutdown())
 		{
-			for (int y = 0; y < H; ++y)
-			{
-				uint8_t* row = buffer.data() + y * Pitch;
-				for (int x = 0; x < W; ++x)
-				{
-                    const bool a = (((x >> 5) ^ (y >> 5) ^ (frame >> 3)) & 1) == 0;
-                    const uint8_t r = a ? 0xFF : 0x00;
-                    const uint8_t g = a ? 0x00 : 0xFF;
-                    const uint8_t b = 0x00;
-                    row[x * 4 + 0] = b; // B
-                    row[x * 4 + 1] = g; // G
-                    row[x * 4 + 2] = r; // R
-					row[x * 4 + 3] = 0xFF;           // A
-				}
+			ret = Step();
+			if (ret != OK && ret != EXIT) {
+				break;
 			}
-			EmitFrame(buffer.data(), W, H, Pitch);
-			std::this_thread::sleep_for(std::chrono::milliseconds(16));
-			++frame;
+		}
+	});
+
+	// Start graphics update thread (60Hz)
+	gGraphicsThread = std::thread([](){
+		while (gRunning.load(std::memory_order_acquire) && !IsGraphicsShutdown())
+		{
+			GraphicsUpdate();
+			std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
 		}
 	});
 }
 
 void StopStarflight()
 {
+	GraphicsQuit();
 	gRunning.store(false, std::memory_order_release);
 	if (gWorker.joinable()) gWorker.join();
+	if (gGraphicsThread.joinable()) gGraphicsThread.join();
 }
 
 // Internal helpers to emit data (call these from emulator thread once wired)
-static inline void EmitFrame(const uint8_t* bgra, int w, int h, int pitch)
+void EmitFrame(const uint8_t* bgra, int w, int h, int pitch)
 {
 	FrameSinkFn sink;
 	{

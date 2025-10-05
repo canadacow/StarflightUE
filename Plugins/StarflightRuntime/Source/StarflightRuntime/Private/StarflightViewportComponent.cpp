@@ -45,7 +45,7 @@ void AStarflightHUD::OnFrame(const uint8* BGRA, int W, int H, int Pitch)
 
 void AStarflightHUD::UpdateTexture()
 {
-	if (!OutputTexture) return;
+	if (!OutputTexture || !OutputTexture->IsValidLowLevel()) return;
 
 	TArray<uint8> LocalCopy;
 	int32 LocalW, LocalH;
@@ -57,11 +57,28 @@ void AStarflightHUD::UpdateTexture()
 		LocalH = Height;
 	}
 
-	FTexture2DMipMap& Mip = OutputTexture->GetPlatformData()->Mips[0];
-	void* Data = Mip.BulkData.Lock(LOCK_READ_WRITE);
-	FMemory::Memcpy(Data, LocalCopy.GetData(), LocalCopy.Num());
-	Mip.BulkData.Unlock();
-	OutputTexture->UpdateResource();
+	// Recreate texture if size changed
+	if (LocalW != OutputTexture->GetSizeX() || LocalH != OutputTexture->GetSizeY())
+	{
+		UE_LOG(LogStarflightHUD, Warning, TEXT("Recreating texture: %dx%d -> %dx%d"), 
+			OutputTexture->GetSizeX(), OutputTexture->GetSizeY(), LocalW, LocalH);
+		OutputTexture = UTexture2D::CreateTransient(LocalW, LocalH, PF_B8G8R8A8);
+		OutputTexture->SRGB = false;
+		OutputTexture->Filter = TF_Nearest;
+		OutputTexture->UpdateResource();
+	}
+
+	// Validate data size
+	if (LocalCopy.Num() != LocalW * LocalH * 4)
+	{
+		UE_LOG(LogStarflightHUD, Error, TEXT("Data size mismatch: %d bytes for %dx%d (expected %d)"), 
+			LocalCopy.Num(), LocalW, LocalH, LocalW * LocalH * 4);
+		return;
+	}
+
+	// Use UpdateTextureRegions for safe texture update
+	FUpdateTextureRegion2D Region(0, 0, 0, 0, LocalW, LocalH);
+	OutputTexture->UpdateTextureRegions(0, 1, &Region, LocalW * 4, 4, LocalCopy.GetData());
 }
 
 void AStarflightHUD::DrawHUD()

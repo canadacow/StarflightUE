@@ -14,4 +14,7 @@ using AudioSinkFn = std::function<void(const int16_t* pcm, int frames, int sampl
 void SetFrameSink(FrameSinkFn cb);
 void SetAudioSink(AudioSinkFn cb);
 
+// Internal helper called by graphics.cpp to emit frames
+void EmitFrame(const uint8_t* bgra, int w, int h, int pitch);
+
 
