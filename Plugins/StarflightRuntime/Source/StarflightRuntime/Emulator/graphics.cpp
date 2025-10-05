@@ -11,6 +11,7 @@
 #include <algorithm>
 
 // EGA color palette (BGRA format for UE)
+// Made non-static so call.cpp can access it
 uint32_t colortable[16] = {
     0xFF000000, // 0: Black
     0xFF0000AA, // 1: Blue

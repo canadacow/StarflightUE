@@ -41,12 +41,14 @@ void StartStarflight()
 {
 	gRunning.store(true, std::memory_order_release);
 
+	// Initialize CPU and memory FIRST (must be done before any graphics access)
+	InitCPU();
+	
 	// Initialize graphics
 	GraphicsInit();
 
 	// Start emulator thread
 	gWorker = std::thread([](){
-		InitCPU();
 		InitEmulator("");  // Empty path for now, will need game data later
 		
 		enum RETURNCODE ret = OK;

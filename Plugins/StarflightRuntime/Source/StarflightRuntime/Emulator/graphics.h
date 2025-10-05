@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include "call_stubs.h"
 
+// EGA color palette (shared with call.cpp)
+extern uint32_t colortable[16];
+
 // Minimal graphics interface for UE integration
 // Stubs for all the graphics functions that call.cpp expects
 

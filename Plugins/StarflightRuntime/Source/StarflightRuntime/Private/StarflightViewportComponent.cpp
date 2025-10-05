@@ -1,3 +1,7 @@
+#ifdef UpdateResource
+#undef UpdateResource
+#endif
+
 #include "StarflightViewportComponent.h"
 #include "StarflightBridge.h"
 #include "Engine/Canvas.h"

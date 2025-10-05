@@ -1,5 +1,6 @@
 // Disable warnings for emulator code
 #pragma warning(disable: 4334) // 32-bit shift converted to 64 bits
+#pragma warning(disable: 4459) // declaration hides global declaration
 
 /*
 LodePNG version 20230410

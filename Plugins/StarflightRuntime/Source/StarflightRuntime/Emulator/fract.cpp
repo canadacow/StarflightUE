@@ -3,6 +3,13 @@
 #pragma warning(disable: 4459) // declaration hides global declaration
 #pragma warning(disable: 4101) // unreferenced local variable
 
+#ifdef read
+#undef read
+#endif
+#ifdef write  
+#undef write
+#endif
+
 #include "fract.h"
 
 #include <stdio.h>
