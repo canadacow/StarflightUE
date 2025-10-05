@@ -1,0 +1,17 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0",
+  "FriendlyName": "Starflight Runtime",
+  "Description": "Runs Starflight emulator and renders into a UTexture2D.",
+  "Category": "Runtime",
+  "EnabledByDefault": true,
+  "Modules": [
+    {
+      "Name": "StarflightRuntime",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}
+

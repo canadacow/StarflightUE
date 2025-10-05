@@ -1,0 +1,38 @@
+# Visual Studio 2022
+.vs/
+*.suo
+*.user
+*.sln
+
+# Build results
+Binaries/
+Intermediate/
+Build/
+
+# Cache files
+DerivedDataCache/
+
+# Saved files (logs, config overrides, etc.)
+Saved/
+!Saved/Config/
+Saved/Config/Windows*/
+
+# Plugin intermediate files
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+
+# Rider
+.idea/
+
+# Visual Studio Code
+.vscode/
+
+# Backup files
+Backup/
+*.tmp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
