@@ -92,16 +92,20 @@ void AStarflightHUD::UpdateTexture()
 	}
 
 	// Validate data size
-	if (LocalCopy.Num() != LocalW * LocalH * 4)
+	const int32 ExpectedSize = LocalW * LocalH * 4;
+	if (LocalCopy.Num() != ExpectedSize)
 	{
 		UE_LOG(LogStarflightHUD, Error, TEXT("Data size mismatch: %d bytes for %dx%d (expected %d)"), 
-			LocalCopy.Num(), LocalW, LocalH, LocalW * LocalH * 4);
+			LocalCopy.Num(), LocalW, LocalH, ExpectedSize);
 		return;
 	}
 
-	// Use UpdateTextureRegions for safe texture update
-	FUpdateTextureRegion2D Region(0, 0, 0, 0, LocalW, LocalH);
-	OutputTexture->UpdateTextureRegions(0, 1, &Region, LocalW * 4, 4, LocalCopy.GetData());
+	// Update texture using platform data (safer than UpdateTextureRegions)
+	FTexture2DMipMap& Mip = OutputTexture->GetPlatformData()->Mips[0];
+	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+	FMemory::Memcpy(TextureData, LocalCopy.GetData(), ExpectedSize);
+	Mip.BulkData.Unlock();
+	OutputTexture->UpdateResource();
 }
 
 void AStarflightHUD::DrawHUD()

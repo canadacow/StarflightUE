@@ -69,6 +69,15 @@ void GraphicsInit()
 {
     s_framebuffer.resize(GRAPHICS_WIDTH * GRAPHICS_HEIGHT * 4, 0);
     graphicsIsShutdown = false;
+    s_graphicsMode.store(1); // Start in graphics mode (320x200)
+    s_cursorX = 0;
+    s_cursorY = 0;
+    
+    // Clear graphics memory to green (color index 2)
+    uint32_t gfxMemBase = ComputeAddress(GRAPHICS_SEGMENT, 0);
+    for (int i = 0; i < GRAPHICS_WIDTH * GRAPHICS_HEIGHT; ++i) {
+        m[gfxMemBase + i] = 2; // Green
+    }
 }
 
 void GraphicsQuit()
