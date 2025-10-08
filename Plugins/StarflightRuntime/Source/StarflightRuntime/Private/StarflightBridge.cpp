@@ -5,12 +5,17 @@
 #include "cpu/cpu.h"
 #include "call.h"
 #include "graphics.h"
+#include "Misc/Paths.h"
 
 #include <atomic>
 #include <mutex>
 #include <thread>
 #include <vector>
 #include <chrono>
+#include <string>
+
+// Global variable to hold project directory for emulator file loading
+std::string g_ProjectDirectory;
 
 namespace
 {
@@ -41,6 +46,10 @@ void StartStarflight()
 {
 	gRunning.store(true, std::memory_order_release);
 
+	// Set project directory for emulator file loading (convert to absolute path)
+	FString ProjectDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+	g_ProjectDirectory = std::string(TCHAR_TO_UTF8(*ProjectDir));
+
 	// Initialize CPU and memory FIRST (must be done before any graphics access)
 	InitCPU();
 	
@@ -49,20 +58,20 @@ void StartStarflight()
 
 	// Start emulator thread
 	gWorker = std::thread([](){
-		// TODO: InitEmulator needs game data files - commented out for now
-		// InitEmulator("");  // Empty path for now, will need game data later
+		InitEmulator("");  // Load game data from starflt1-in directory
 
-		// For now, just run the graphics update loop without game logic
 		enum RETURNCODE ret = OK;
-		while (gRunning.load(std::memory_order_acquire) && !IsGraphicsShutdown())
+		do
 		{
-			// TODO: Uncomment when game data is available
-			// ret = Step();
-			// if (ret != OK && ret != EXIT) {
-			// 	break;
-			// }
-			std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
-		}
+			ret = Step();
+
+			if (IsGraphicsShutdown())
+				break;
+
+			if (!gRunning.load(std::memory_order_acquire)) {
+				break;
+			}
+		} while (ret == OK || ret == EXIT);
 	});
 
 	// Start graphics update thread (60Hz)

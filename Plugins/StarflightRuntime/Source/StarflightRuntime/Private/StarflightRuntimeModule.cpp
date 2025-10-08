@@ -1,6 +1,7 @@
 #include "Modules/ModuleManager.h"
 #include "StarflightBridge.h"
 #include "Engine/World.h"
+
 #include "GameFramework/PlayerController.h"
 #include "StarflightViewportComponent.h"
 #include "TimerManager.h"
@@ -13,7 +14,7 @@ class FStarflightRuntimeModule : public IModuleInterface
 public:
 	virtual void StartupModule() override
 	{
-		StartStarflight();
+		// Emulator will be started when HUD BeginPlay() is called (when Play is pressed)
 		WorldInitHandle = FWorldDelegates::OnPostWorldInitialization.AddRaw(this, &FStarflightRuntimeModule::OnWorldInit);
 	}
 
@@ -24,7 +25,7 @@ public:
 			FWorldDelegates::OnPostWorldInitialization.Remove(WorldInitHandle);
 			WorldInitHandle.Reset();
 		}
-		StopStarflight();
+		// Emulator will be stopped when HUD EndPlay() is called (when Play is stopped)
 	}
 
 private:

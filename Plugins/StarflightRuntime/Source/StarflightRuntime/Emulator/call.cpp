@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <direct.h> // for _getcwd on Windows
 #include "cpu/cpu.h"
 #include "fract.h"
 #include "graphics.h"
@@ -2818,8 +2819,8 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         for (int k = 0; k < 48; k++)
                         {
                             auto jat = 23 - j;
-                            auto val = mini_png[jat * 48 + i];
-                            Write8Long(seg, j * 48 + i, val);
+                            auto val = mini_png[jat * 48 + k];
+                            Write8Long(seg, j * 48 + k, val);
                         }
                     }                    
                 }
@@ -5287,31 +5288,51 @@ void SaveSTARFLT()
 
 void LoadSTARFLT(std::filesystem::path path)
 {
+    // Get the project directory from Unreal (will be set before calling this)
+    extern std::string g_ProjectDirectory;
+    
     FILE *fp;
     int ret;
+
+    char cwd[1024];
+    if (_getcwd(cwd, sizeof(cwd)) != NULL) {
+        fprintf(stderr, "LoadSTARFLT: cwd = %s\n", cwd);
+    } else {
+        fprintf(stderr, "LoadSTARFLT: getcwd failed\n");
+    }
+    fprintf(stderr, "LoadSTARFLT: g_ProjectDirectory = %s\n", g_ProjectDirectory.c_str());
+
+    // Construct full path to game files
+    std::string star0Path = g_ProjectDirectory + FILESTAR0;
+    std::string staraPath = g_ProjectDirectory + FILESTARA;
+    std::string starbPath = g_ProjectDirectory + FILESTARB;
+    
+    fprintf(stderr, "LoadSTARFLT: Trying to load %s\n", star0Path.c_str());
+
     memset(mem, 0, 0x10000);
-    fp = fopen(FILESTAR0, "rb");
+    fp = fopen(star0Path.c_str(), "rb");
     if (fp == NULL)
     {
-        fprintf(stderr, "Error: Cannot find file %s\n", FILESTAR0);
+        fprintf(stderr, "Error: Cannot find file %s\n", star0Path.c_str());
         exit(1);
     }
     ret = fread(&mem[0x100], FILESTAR0SIZE, 1, fp);
     fclose(fp);
 
-    fp = fopen(FILESTARA, "rb");
+    fprintf(stderr, "LoadSTARFLT: Trying to load %s\n", staraPath.c_str());
+    fp = fopen(staraPath.c_str(), "rb");
     if (fp == NULL)
     {
-        fprintf(stderr, "Cannot open file %s\n", FILESTARA);
+        fprintf(stderr, "Cannot open file %s\n", staraPath.c_str());
         exit(1);
     }
     ret = fread(STARA_ORIG, 256000, 1, fp);
     fclose(fp);
 
-    fp = fopen(FILESTARB, "rb");
+    fp = fopen(starbPath.c_str(), "rb");
     if (fp == NULL)
     {
-        fprintf(stderr, "Cannot open file %s\n", FILESTARB);
+        fprintf(stderr, "Cannot open file %s\n", starbPath.c_str());
         exit(1);
     }
     ret = fread(STARB_ORIG, 362496, 1, fp);

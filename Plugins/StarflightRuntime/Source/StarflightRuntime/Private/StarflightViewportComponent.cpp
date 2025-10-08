@@ -28,12 +28,19 @@ void AStarflightHUD::BeginPlay()
 		OnFrame(BGRA, W, H, Pitch);
 	});
 
-	UE_LOG(LogStarflightHUD, Warning, TEXT("Starflight HUD started"));
+	// Start the emulator when the HUD begins (when Play is pressed)
+	StartStarflight();
+
+	UE_LOG(LogStarflightHUD, Warning, TEXT("Starflight HUD started and emulator launched"));
 }
 
 void AStarflightHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	Super::EndPlay(EndPlayReason);
+	
+	// Stop the emulator when the HUD ends (when Play is stopped)
+	StopStarflight();
+	
 	SetFrameSink(nullptr);
 }
 

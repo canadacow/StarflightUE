@@ -67,16 +67,17 @@ static const uint8_t s_font8x8[96][8] = {
 
 void GraphicsInit()
 {
-    s_framebuffer.resize(GRAPHICS_WIDTH * GRAPHICS_HEIGHT * 4, 0);
+    s_framebuffer.resize(TEXT_WIDTH * TEXT_CHAR_WIDTH * TEXT_HEIGHT * TEXT_CHAR_HEIGHT * 4, 0);
     graphicsIsShutdown = false;
-    s_graphicsMode.store(1); // Start in graphics mode (320x200)
+    s_graphicsMode.store(0); // Start in text mode (80x25), game will switch to graphics mode
     s_cursorX = 0;
     s_cursorY = 0;
     
-    // Clear graphics memory to green (color index 2)
-    uint32_t gfxMemBase = ComputeAddress(GRAPHICS_SEGMENT, 0);
-    for (int i = 0; i < GRAPHICS_WIDTH * GRAPHICS_HEIGHT; ++i) {
-        m[gfxMemBase + i] = 2; // Green
+    // Clear text memory (0xB800) to black background, light gray foreground
+    uint32_t textMemBase = ComputeAddress(TEXT_SEGMENT, 0);
+    for (int i = 0; i < TEXT_WIDTH * TEXT_HEIGHT; ++i) {
+        m[textMemBase + i * 2] = 0x20; // Space character
+        m[textMemBase + i * 2 + 1] = 0x07; // Light gray on black
     }
 }
 

@@ -1,3 +1,6 @@
+// Disable warnings for emulator code
+#pragma warning(disable: 4883) // function size suppresses optimizations
+
 #include"findword.h"
 
 #include<stdio.h>
@@ -11,8 +14,7 @@
 #include"cpu/cpu.h"
 #include"callstack.h"
 
-// Stub constants - will need proper values from game data
-static const int FILESTAR0SIZE = 0x4000;
+#include "call_stubs.h"
 
 // Stub overlay structure
 struct Overlay {

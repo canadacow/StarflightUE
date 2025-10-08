@@ -227,9 +227,9 @@ enum class OrbitState {
 #include "instance.h"
 
 // Missing constants
-#define REGDI 0x100
-#define FILESTAR0SIZE 0x4000
-#define FILESTAR0 "starflt1-in/STAR.EXE"
+#define REGDI 0x78C
+#define FILESTAR0SIZE 54183
+#define FILESTAR0 "starflt1-in/STARFLT.COM"
 #define FILESTARA "starflt1-in/STARA.COM"
 #define FILESTARB "starflt1-in/STARB.COM"
 
