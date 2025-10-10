@@ -6,7 +6,7 @@
 #include"cpu/cpu.h"
 
 // Wrapper macros for memory access
-#define Read16_CS(offset) Read16(currentMemory, offset)
+extern unsigned char* currentMemory;
 
 // ------------------------------------------------
 // Functions to print the call stack properly
@@ -36,13 +36,13 @@ void DefineCallStack(int bp, int value)
     if (bpbase-bp > 0)
     {
         iscall[(bpbase-bp)>>1] = value;
-        if (value) iscallovidx[(bpbase-bp)>>1] = GetOverlayIndex(Read16_CS(0x55a5), NULL);
+        if (value) iscallovidx[(bpbase-bp)>>1] = GetOverlayIndex(Read16(0x55a5), NULL);
     }
 }
 
 void PrintCallstacktrace(int bx)
 {
-    int ovidx = GetOverlayIndex(Read16_CS(0x55a5), NULL);
+    int ovidx = GetOverlayIndex(Read16(0x55a5), NULL);
     SetBPBase(regbp);
     printf("========================================\n");
     printf("              Callstack\n");
@@ -57,7 +57,7 @@ void PrintCallstacktrace(int bx)
         if (iscall[(bpbase-i)>>1])
         {
             ovidx = iscallovidx[(bpbase-i)>>1];
-            int word_inner = FindClosestWord(Read16_CS(i), ovidx);
+            int word_inner = FindClosestWord(Read16(i), ovidx);
             const char* ovname = GetOverlayName(word_inner, ovidx);
             printf("  0x%04x  %15s   %s\n", word_inner, ovname, FindWord(word_inner, ovidx));
         }

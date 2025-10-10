@@ -12,7 +12,7 @@ __declspec(align(4096)) unsigned short regbp = 0;
 __declspec(align(4096)) unsigned short regsi = 0; // current vocabulary address (the forth pc pointer)
 __declspec(align(4096)) unsigned short regbx = 0;
 
-#if 0
+#if !defined(USE_INLINE_MEMORY)
 #if 0
 unsigned long ComputeAddress(unsigned short segment, unsigned short offset)
 {

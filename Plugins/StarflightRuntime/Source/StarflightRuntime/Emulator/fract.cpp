@@ -31,6 +31,10 @@ extern "C" {
     __declspec(dllimport) void __stdcall OutputDebugStringA(const char* lpOutputString);
 }
 
+// External declarations for memory access
+extern unsigned char* currentMemory;
+extern uint16_t* RandomSeed;
+
 #if defined(__GNUC__)
     #define FORCE_INLINE __attribute__((always_inline)) inline
 #elif defined(_MSC_VER)
