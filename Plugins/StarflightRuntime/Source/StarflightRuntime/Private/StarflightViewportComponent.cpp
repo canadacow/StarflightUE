@@ -128,7 +128,7 @@ void AStarflightHUD::DrawHUD()
 		TileItem.BlendMode = SE_BLEND_Opaque;
 		Canvas->DrawItem(TileItem);
 		
-		UE_LOG(LogStarflightHUD, Log, TEXT("Drew texture %dx%d to canvas %dx%d"), OutputTexture->GetSizeX(), OutputTexture->GetSizeY(), (int)Canvas->SizeX, (int)Canvas->SizeY);
+		//UE_LOG(LogStarflightHUD, Log, TEXT("Drew texture %dx%d to canvas %dx%d"), OutputTexture->GetSizeX(), OutputTexture->GetSizeY(), (int)Canvas->SizeX, (int)Canvas->SizeY);
 	}
 	else
 	{

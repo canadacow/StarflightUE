@@ -13,9 +13,6 @@
 #include <stdarg.h>
 #include "Logging/LogMacros.h"
 
-#include <fstream>
-#include <iostream>
-
 #include "util/lodepng.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightFract, Log, All);
@@ -1355,19 +1352,19 @@ bool FractalGenerator::Initialize(const std::filesystem::path& planetDatabase)
         return true;
     }
 
-    std::ifstream file(planetDatabase, std::ios::binary);
-    if (!file.is_open())
+    FILE* file = fopen(planetDatabase.string().c_str(), "rb");
+    if (!file)
     {
-        SF_Log("Could not open file %s\n", planetDatabase.c_str());
+        SF_Log("Could not open file %s\n", planetDatabase.string().c_str());
         return false;
     }
 
     // Read the map size
     size_t mapSize;
-    file.read(reinterpret_cast<char*>(&mapSize), sizeof(mapSize));
-    if (file.fail())
+    if (fread(&mapSize, sizeof(mapSize), 1, file) != 1)
     {
-        SF_Log("Failed to read map size from file %s\n", planetDatabase.c_str());
+        SF_Log("Failed to read map size from file %s\n", planetDatabase.string().c_str());
+        fclose(file);
         return false;
     }
 
@@ -1375,33 +1372,33 @@ bool FractalGenerator::Initialize(const std::filesystem::path& planetDatabase)
     for (size_t i = 0; i < mapSize; ++i)
     {
         uint32_t key;
-        file.read(reinterpret_cast<char*>(&key), sizeof(key));
-        if (file.fail())
+        if (fread(&key, sizeof(key), 1, file) != 1)
         {
-            SF_Log("Failed to read key from file %s\n", planetDatabase.c_str());
+            SF_Log("Failed to read key from file %s\n", planetDatabase.string().c_str());
+            fclose(file);
             return false;
         }
 
         size_t size;
-        file.read(reinterpret_cast<char*>(&size), sizeof(size));
-        if (file.fail())
+        if (fread(&size, sizeof(size), 1, file) != 1)
         {
-            SF_Log("Failed to read size from file %s\n", planetDatabase.c_str());
+            SF_Log("Failed to read size from file %s\n", planetDatabase.string().c_str());
+            fclose(file);
             return false;
         }
 
         std::vector<int8_t> native(size);
-        file.read(reinterpret_cast<char*>(native.data()), size);
-        if (file.fail())
+        if (fread(native.data(), 1, size, file) != size)
         {
-            SF_Log("Failed to read native data from file %s\n", planetDatabase.c_str());
+            SF_Log("Failed to read native data from file %s\n", planetDatabase.string().c_str());
+            fclose(file);
             return false;
         }
 
         nativeImages.emplace(key, std::move(native));
     }
 
-    file.close();
+    fclose(file);
     initialized = true;
     return true;
 }
