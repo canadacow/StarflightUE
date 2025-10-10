@@ -1864,13 +1864,13 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                                 int val = 0;
                                 if(p.second.species != 18)
                                 {
-                                    ps.native[t] = (int8_t)Read8Long(seg, j * 48 + i);
+                                    ps.native[t] = (int8_t)Read8Long(seg, j * 48 + k);
                                     val = (int32_t)(int8_t)ps.native[t];
                                 }
                                 else
                                 {
                                     auto jat = 23 - j;
-                                    val = mini_png[jat * 48 + i];
+                                    val = mini_png[jat * 48 + k];
                                     ps.native[t] = (int8_t)val;
                                 }
                                 
