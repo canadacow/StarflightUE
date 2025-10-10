@@ -5,7 +5,7 @@
 #include <functional>
 #include <filesystem>
 
-enum RETURNCODE {OK, ERROR, EXIT, CHARINPUT, STOP};
+enum RETURNCODE {OK, EMULATOR_ERROR, EXIT, CHARINPUT, STOP};
 
 enum RETURNCODE Call(unsigned short addr, unsigned short bx);
 enum RETURNCODE Step();

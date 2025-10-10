@@ -19,6 +19,23 @@
 #include "graphics.h"
 #include "callstack.h"
 #include "findword.h"
+
+// Unreal Engine logging
+#include <stdarg.h>
+#include "Logging/LogMacros.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogStarflightEmulator, Log, All);
+
+// Simple wrapper to redirect printf-style logging to UE
+static void SF_Log(const char* Format, ...)
+{
+	static char Buffer[4096];
+	va_list Args;
+	va_start(Args, Format);
+	vsnprintf(Buffer, sizeof(Buffer), Format, Args);
+	va_end(Args);
+	UE_LOG(LogStarflightEmulator, Log, TEXT("%s"), ANSI_TO_TCHAR(Buffer));
+}
 // #include "../disasOV/global.h"  // Not needed for UE build
 #include "util/lodepng.h"
 #include "tts/speech.h"
@@ -93,7 +110,7 @@ float3 ToAlbedoWithIndex(const uint8_t* palette, int ordinal)
 
 void FillKeyboardBufferString(const char *str)
 {
-  //printf("Interpret '%s'\n", str);
+  //SF_Log("Interpret '%s'\n", str);
     int n = strlen(str);
     inputbuffer.clear();
     for(int i=0; i<n; i++)
@@ -119,13 +136,13 @@ void PrintCStack()
 {
   int cxsp = Read16(0x54B0);
   int n = ((0x6398 - cxsp)&0xFF)/3;
-  printf("=== CSTACK ===\n");
+  SF_Log("=== CSTACK ===\n");
   for(int i=0; i<n+2; i++)
   {
     cxsp += 3;
-    printf(" %i: 0x%06x\n", n-i-1, (Read8(cxsp+2)<<16) | Read16(cxsp));
+    SF_Log(" %i: 0x%06x\n", n-i-1, (Read8(cxsp+2)<<16) | Read16(cxsp));
   }
-  printf("==============\n");
+  SF_Log("==============\n");
 }
 // ------------------------------------------------
 void PrintCache()
@@ -146,19 +163,19 @@ void PrintCache()
                   .BUFSTUFF KEY DROP LOOP ;
   */
   // Logic from word .CACHE in disys.txt
-  printf("C#     SEG    UPDATE MT   BLK\n");
+  SF_Log("C#     SEG    UPDATE MT   BLK\n");
   unsigned short seg = Read16(0x2c6c);
-  printf("LPREV: 0x%04x 0x%02x   0x%02x 0x%04x\n", Read16Long(seg, 0), Read8Long(seg, 2), Read8Long(seg, 3), (unsigned short int)Read16Long(seg, 6)-Read16(0x2c79));
+  SF_Log("LPREV: 0x%04x 0x%02x   0x%02x 0x%04x\n", Read16Long(seg, 0), Read8Long(seg, 2), Read8Long(seg, 3), (unsigned short int)Read16Long(seg, 6)-Read16(0x2c79));
   seg = Read16(0x2c84);
-  printf("PREV : 0x%04x 0x%02x   0x%02x 0x%04x\n", Read16Long(seg, 0), Read8Long(seg, 2), Read8Long(seg, 3), (unsigned short int)Read16Long(seg, 6)-Read16(0x2c79));
+  SF_Log("PREV : 0x%04x 0x%02x   0x%02x 0x%04x\n", Read16Long(seg, 0), Read8Long(seg, 2), Read8Long(seg, 3), (unsigned short int)Read16Long(seg, 6)-Read16(0x2c79));
   seg = Read16(0x2cbe);
-  printf("USE  : 0x%04x 0x%02x   0x%02x 0x%04x\n", Read16Long(seg, 0), Read8Long(seg, 2), Read8Long(seg, 3), (unsigned short int)Read16Long(seg, 6)-Read16(0x2c79));
+  SF_Log("USE  : 0x%04x 0x%02x   0x%02x 0x%04x\n", Read16Long(seg, 0), Read8Long(seg, 2), Read8Long(seg, 3), (unsigned short int)Read16Long(seg, 6)-Read16(0x2c79));
   int ncache = Read16(0x09ef);
   for(int i=0; i<ncache; i++)
   {
     seg = Read16Long(Read16(0x2c9d), 2*i); // SEGCACHE:2*i
-    printf("%5i  ", i);
-    printf("0x%04x 0x%02x   0x%02x 0x%04x\n", Read16Long(seg, 0), Read8Long(seg, 2), Read8Long(seg, 3), (unsigned short int)Read16Long(seg, 6)-Read16(0x2c79));
+    SF_Log("%5i  ", i);
+    SF_Log("0x%04x 0x%02x   0x%02x 0x%04x\n", Read16Long(seg, 0), Read8Long(seg, 2), Read8Long(seg, 3), (unsigned short int)Read16Long(seg, 6)-Read16(0x2c79));
   }
 
 }
@@ -222,7 +239,7 @@ bool Serialize(const std::vector<uint8_t>& rotoscopeData, const std::vector<uint
     std::ofstream file(filename, std::ios::binary);
     if (!file.is_open())
     {
-        printf("Could not open file %s\n", filename.c_str());
+        SF_Log("Could not open file %s\n", filename.c_str());
         return false;
     }
 
@@ -353,7 +370,7 @@ void HandleInterrupt()
     int tempdi = Read16(0x16c0);
     int tempsi = Read16(0x16c2);
 
-    //printf("interrupt 0x%x with ax=0x%04x bx=0x%04x flags=%x es=0x%04x\n", interrupt, ax, bx, flags, es);
+    //SF_Log("interrupt 0x%x with ax=0x%04x bx=0x%04x flags=%x es=0x%04x\n", interrupt, ax, bx, flags, es);
 
     if ((interrupt == 0x10) && ((ax>>8) == 0xF))
     {
@@ -383,7 +400,7 @@ void HandleInterrupt()
     if ((interrupt == 0x21) && ((ax>>8) == 0x1a))
     {
         // set disk transfer address
-        //printf("  set disk transfer to 0x%04x:0x%04x\n", ds, dx);
+        //SF_Log("  set disk transfer to 0x%04x:0x%04x\n", ds, dx);
         disktransferaddress_segment = ds;
         disktransferaddress_offset = dx;
         // set to 0x117B:0x0008
@@ -424,7 +441,7 @@ void HandleInterrupt()
 
         memcpy(fileTarget, dataSource, recordSizeBytes);
 
-        printf("Write %s block=%zu size=%zu\n", filename.c_str(), offset, recordSizeBytes);
+        SF_Log("Write %s block=%zu size=%zu\n", filename.c_str(), offset, recordSizeBytes);
         ax = 0x0;
     } else
     if ((interrupt == 0x21) && ((ax>>8) == 0x21))
@@ -461,16 +478,16 @@ void HandleInterrupt()
 
         memcpy(dataTarget, fileSource, recordSizeBytes);
 
-        printf("Read %s block=%zu size=%zu\n", filename.c_str(), offset, recordSizeBytes);
+        SF_Log("Read %s block=%zu size=%zu\n", filename.c_str(), offset, recordSizeBytes);
 
         ax = 0x0;
     } else
     if ((interrupt == 0x21) && ((ax>>8) == 0x11)) // find first file
     {
         // Search for first entry using FCB
-        //printf("  Load ");
-        //for(i=0; i<11; i++) printf("%c", mem[dx+1+i]);
-        //printf("\n");
+        //SF_Log("  Load ");
+        //for(i=0; i<11; i++) SF_Log("%c", mem[dx+1+i]);
+        //SF_Log("\n");
 
         // file found
         ax = 0x0;
@@ -478,7 +495,7 @@ void HandleInterrupt()
     if ((interrupt == 0x21) && ((ax>>8) == 0x4A))
     {
         // modify allocated memory block
-        //printf("modify allocated memory block: segment=0x%04x new size=0x%04x\n", es, bx);
+        //SF_Log("modify allocated memory block: segment=0x%04x new size=0x%04x\n", es, bx);
         ax = 0x1FE;
         bx = bx;
         //for(i=0xFFD0; i<0x10000; i++) mem[i] = 0x0;
@@ -486,11 +503,11 @@ void HandleInterrupt()
     if ((interrupt == 0x21) && ((ax>>8) == 0x29))
     {
         // Parse a Filename for FCB
-        //printf("  ds:si 0x%x:0x%x\n", ds, tempsi);
-        //printf("  es:di 0x%x:0x%x\n", es, tempdi);
-        //printf("  Load ");
-        //for(i=0; i<11; i++) printf("%c", mem[tempsi+i]);
-        //printf("\n");
+        //SF_Log("  ds:si 0x%x:0x%x\n", ds, tempsi);
+        //SF_Log("  es:di 0x%x:0x%x\n", es, tempdi);
+        //SF_Log("  Load ");
+        //for(i=0; i<11; i++) SF_Log("%c", mem[tempsi+i]);
+        //SF_Log("\n");
         for(i=0; i<5; i++) mem[tempdi+i+1] = mem[tempsi+i]; // STARA or STARB
         mem[tempdi+0x0] = 0x0; // drive number
         // filesize
@@ -515,7 +532,7 @@ void HandleInterrupt()
         bx = 0;
     } else
     {
-        fprintf(stderr, "unknown interrupt request\n");
+        SF_Log("unknown interrupt request\n");
         assert(false);
     }
     Write16(0x16b4, flags); //flags
@@ -538,7 +555,7 @@ void XCHG(unsigned short *a, unsigned short *b)
 RETURNCODE ParameterCall(unsigned short bx, unsigned short addr)
 {
     // call word 0x1649;
-    //printf("Parametercall addr=%04x, si=%04x bx=%04x content=0x%04x\n", addr, regsi, bx+2, Read16(bx+2));
+    //SF_Log("Parametercall addr=%04x, si=%04x bx=%04x content=0x%04x\n", addr, regsi, bx+2, Read16(bx+2));
 
     regbp -= 2;
     Write16(regbp, regsi);
@@ -678,10 +695,10 @@ void Find() // "(FIND)"
     unsigned short cx = Pop(); // length and string of entry
     int n = Read8(cx);
 /*
-    printf("Find: '");
+    SF_Log("Find: '");
     for(int i=0; i<n; i++)
-        printf("%c", Read8(cx+1+i));
-    printf("'\n");
+        SF_Log("%c", Read8(cx+1+i));
+    SF_Log("'\n");
 */
 
 // ------------------------------------
@@ -696,7 +713,7 @@ void Find() // "(FIND)"
         return;
     }
     int word = FindWordByName((char*)&mem[cx+1], n);
-    //printf("Found 0x%04x\n", word);
+    //SF_Log("Found 0x%04x\n", word);
     if (word == 0x0)
     {
         //Push(0);
@@ -717,14 +734,14 @@ void Find() // "(FIND)"
     unsigned char dl, dh;
     dl = 0x3F;
     dh = 0x7F;
-    //printf("first vocabulary entry address=%x\n  word to search at address=%x\n", bx, cx);
+    //SF_Log("first vocabulary entry address=%x\n  word to search at address=%x\n", bx, cx);
 
     while(1)
     {
-        //printf("0x%04x\n",bx);
+        //SF_Log("0x%04x\n",bx);
         if (bx == 0) // word is not found, return 0
         {
-            //printf("  word not found\n");
+            //SF_Log("  word not found\n");
             //x1859:
             regdi = Pop();
             regsi = Pop();
@@ -753,7 +770,7 @@ void Find() // "(FIND)"
             al = Read8(regsi);
             regsi++;
             ah = Read8(regdi);
-            //printf("find %c at 0x%04x\n", (ah)&0x7F, di);
+            //SF_Log("find %c at 0x%04x\n", (ah)&0x7F, di);
             ah = ah ^ al;
 
         } while(ah == 0);
@@ -775,7 +792,7 @@ void Find() // "(FIND)"
         dh = ah;
         Push(dl);
         Push(1);
-        //printf("  word found at bx=0x%04x ax=0x%04x dl=0x%04x\n", bx, ax, (dh<<8)|dl);
+        //SF_Log("  word found at bx=0x%04x ax=0x%04x dl=0x%04x\n", bx, ax, (dh<<8)|dl);
         return;
     }
 }
@@ -907,7 +924,7 @@ void DrawELLIPSE(bool fill)
     auto seg = Read16(0x5648);
     auto color = Read16(0x55F2);
 
-    //printf("DrawELLIPSE x: %d, y: %d, radius: %d, xnumer: %d, xdenom: %d color %d\n", x, y, radius, xnumer, xdenom, color);
+    //SF_Log("DrawELLIPSE x: %d, y: %d, radius: %d, xnumer: %d, xdenom: %d color %d\n", x, y, radius, xnumer, xdenom, color);
     //fflush(stdout);
 
     ELLIPSE_INTEGER(x, y, (radius * xnumer) / xdenom, radius, color, seg, fill);
@@ -1009,19 +1026,19 @@ struct Rule {
 
             result = result && actionResult;
 
-            printf("Overlay %s, Code 0x%x, word 0x%x (%d of %d) test is '%s%s' which is now %d, rule currently resolves to %d\n", GetOverlayName(curWord->ov), curWord->code, curWord->word - 2, condIdx, conditionCount, modifier, curWord->name, actionResult, result);
+            SF_Log("Overlay %s, Code 0x%x, word 0x%x (%d of %d) test is '%s%s' which is now %d, rule currently resolves to %d\n", GetOverlayName(curWord->ov), curWord->code, curWord->word - 2, condIdx, conditionCount, modifier, curWord->name, actionResult, result);
 
             if (condIdx + 1 == conditionCount)
             {
                 if (result)
                 {
                     auto ret = executeWord(forthWord);
-                    printf("Whole rule (of %d subrules) resolves to true, executing %s:%s\n", conditionCount, GetOverlayName(curWord->ov), curWord->name);
+                    SF_Log("Whole rule (of %d subrules) resolves to true, executing %s:%s\n", conditionCount, GetOverlayName(curWord->ov), curWord->name);
                     if (ret != OK) return ret;
                 }
                 else
                 {
-                    printf("Whole rule resolves to false.\n");
+                    SF_Log("Whole rule resolves to false.\n");
                 }
            }
         }
@@ -1325,7 +1342,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         // 0x0210: mov    bx,ax
         // 0x0212: jmp    word ptr [bx]
         
-        printf("Integer divide by zero\n");
+        SF_Log("Integer divide by zero\n");
 
         if(false)
         {
@@ -1356,7 +1373,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             s_xabs = Read16(pp_XABS);
             s_yabs = Read16(pp_YABS);
 
-            printf("XABS: %d, YABS: %d\n", s_xabs, s_yabs);
+            SF_Log("XABS: %d, YABS: %d\n", s_xabs, s_yabs);
         }
     }
 
@@ -1396,7 +1413,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     auto now = std::chrono::high_resolution_clock::now();
                     auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 
-                    //printf("?TERMINAL delta keytime %lu\n", (uint32_t)(millis - keytime));
+                    //SF_Log("?TERMINAL delta keytime %lu\n", (uint32_t)(millis - keytime));
                 }
             }
         }
@@ -1416,7 +1433,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         auto penultimateTime = std::chrono::duration_cast<std::chrono::microseconds>(end - penultimateWord.start);
                         penultimateWordInfo = "Penultimate Word: " + penultimateWord.word + ", Time Spent: " + std::to_string((uint64_t)penultimateTime.count()) + " us ";
                     }
-                    //printf("%sPop Word: %s, Time Spent: %llu us \n", penultimateWordInfo.c_str(), wordDeque.back().word.c_str(), (uint64_t)time.count());
+                    //SF_Log("%sPop Word: %s, Time Spent: %llu us \n", penultimateWordInfo.c_str(), wordDeque.back().word.c_str(), (uint64_t)time.count());
                 }
             }
             wordDeque.pop_back();
@@ -1437,10 +1454,10 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
     // bx contains pointer to WORD
     if ((regsp < FILESTAR0SIZE+0x100) || (regsp > (0xF6F4)))
     {
-        printf("Error: stack pointer in invalid area: sp=0x%04x\n", regsp);
+        SF_Log("Error: stack pointer in invalid area: sp=0x%04x\n", regsp);
         PrintCallstacktrace(bx);
         assert(false);
-        return ERROR;
+        return EMULATOR_ERROR;
     }
     switch(addr)
     {
@@ -1472,7 +1489,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     auto laserOrMissile = Peek16(0);
                     auto playerOrAlien = Peek16(1);
 
-                    printf("DO-DAMAGE - missile %d, player %d\n", laserOrMissile, playerOrAlien);
+                    SF_Log("DO-DAMAGE - missile %d, player %d\n", laserOrMissile, playerOrAlien);
 
                     if(!playerOrAlien)
                     {
@@ -1497,7 +1514,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 {
                     frameSync.maneuvering = true;
                     frameSync.maneuveringStartTime = std::chrono::steady_clock::now();
-                    printf("frameSync.maneuvering = true\n");
+                    SF_Log("frameSync.maneuvering = true\n");
                 }
 
                 if( nextInstr == 0xe72c && (std::string(overlayName) == "COMBAT-OV")) // COMBAT mdelete (free missiles)
@@ -1520,7 +1537,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 if( nextInstr == 0xe6e4 && (std::string(overlayName) == "COMBAT-OV")) // COMBAT minstall (allocate missiles)
                 {
                     auto val = Read16(0xe1f7); // Missile addr
-                    printf("missile presently set to: %u\n", val);
+                    SF_Log("missile presently set to: %u\n", val);
                 }
 
                 if(nextInstr == 0xEA81 && (std::string(overlayName) == "COMBAT-OV")) // .LASER
@@ -1536,7 +1553,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     laser.hash = laser.computeHash();
                     
                     // Debug print to verify the values
-                    printf("Laser coordinates and color: (%d, %d) to (%d, %d) with color %u\n", laser.x0, laser.y0, laser.x1, laser.y1, laser.color);
+                    SF_Log("Laser coordinates and color: (%d, %d) to (%d, %d) with color %u\n", laser.x0, laser.y0, laser.x1, laser.y1, laser.color);
 
                     s_lasers.push_back(laser);
                 }
@@ -1676,32 +1693,32 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                 if (nextInstr == 0xe6f8) // MANEUVER
                 {
-                    printf("#NEWHEADXY\n");
+                    SF_Log("#NEWHEADXY\n");
                 }
 
                 if (nextInstr == 0xf003) // SETUP-MOV
                 {
-                    printf("SETUP-MOV\n");
+                    SF_Log("SETUP-MOV\n");
                 }
 
                 if (nextInstr == 0xeec9) // FLY
                 {
-                    printf("FLY\n");
+                    SF_Log("FLY\n");
                 }
 
                 if(nextInstr == 0xeae3) // JMPSHP
                 {
-                    printf("JMPSHP\n");
+                    SF_Log("JMPSHP\n");
                 }
 
                 if(nextInstr == 0xf125) // CHK-MOV
                 {
-                    printf("CHK-MOV\n");
+                    SF_Log("CHK-MOV\n");
                 }
 
                 if (nextInstr == 0xb0f1) // 'KEY-CASE
                 {
-                    printf("'KEY-CASE\n");
+                    SF_Log("'KEY-CASE\n");
                 }
 
                 if (nextInstr == 0xf3cb && (std::string(overlayName) == "ORBIT-OV")) // WF3CB, as part of INIT-ORBIT
@@ -1751,7 +1768,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     setDest = Pop();
                     Push(setDest);
 
-                    printf("SET-DESTINATION in %d, wrld %d,%d cursor %d, %d\n", setDest, worldCoordsX, worldCoordsY, cursorX, cursorY);
+                    SF_Log("SET-DESTINATION in %d, wrld %d,%d cursor %d, %d\n", setDest, worldCoordsX, worldCoordsY, cursorX, cursorY);
                 }
 
                 if (nextInstr == 0xb5aa) // HIMUS
@@ -1808,17 +1825,17 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                             }
                             else
                             {
-                                fprintf(stderr, "Error encoding albedo PNG: %u: %s\n", error, lodepng_error_text(error));
+                                SF_Log( "Error encoding albedo PNG: %u: %s\n", error, lodepng_error_text(error));
                             }
                         }
                         else
                         {
-                            fprintf(stderr, "Error: Image dimensions do not match expected size.\n");
+                            SF_Log( "Error: Image dimensions do not match expected size.\n");
                         }
                     }
                     else
                     {
-                        fprintf(stderr, "Error decoding PNG: %u: %s\n", error, lodepng_error_text(error));
+                        SF_Log( "Error decoding PNG: %u: %s\n", error, lodepng_error_text(error));
                     }
 
 
@@ -1829,7 +1846,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     {
                         {
                             char buf[1024];
-                            sprintf(buf, "Generating planet %d of %d with seed %08x\n", planetCount, planets.size(), p.second.seed);
+                            sscanf(buf, "Generating planet %d of %d with seed %08x\n", planetCount, planets.size(), p.second.seed);
                             OutputDebugStringA(buf);
                         }
                         ++planetCount;
@@ -1852,7 +1869,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                             unsigned mini_width, mini_height;
                             unsigned mini_error = lodepng::decode(mini_png, mini_width, mini_height, "mini_earth.png", LCT_GREY, 8);
                             if (mini_error) {
-                                fprintf(stderr, "Error decoding mini PNG: %u: %s\n", mini_error, lodepng_error_text(mini_error));
+                                SF_Log( "Error decoding mini PNG: %u: %s\n", mini_error, lodepng_error_text(mini_error));
                             }
                         }
 
@@ -1993,7 +2010,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                                 }
                                 else
                                 {
-                                    fprintf(stderr, "Error encoding PNG: %u: %s\n", error, lodepng_error_text(error));
+                                    SF_Log( "Error encoding PNG: %u: %s\n", error, lodepng_error_text(error));
                                 }
 
                                 std::vector<unsigned char> albedo_png;
@@ -2005,7 +2022,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                                 }
                                 else
                                 {
-                                    fprintf(stderr, "Error encoding albedo PNG: %u: %s\n", error, lodepng_error_text(error));
+                                    SF_Log( "Error encoding albedo PNG: %u: %s\n", error, lodepng_error_text(error));
                                 }
                                 _exit(0);
                                 #endif
@@ -2028,7 +2045,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         CurrentImageTagForHybridBlit = fileNum;
                     }
 
-                    printf("Read file at %04x:%04x\n", local_ds, fileNum);
+                    SF_Log("Read file at %04x:%04x\n", local_ds, fileNum);
                 }
 
                 if(nextInstr == 0xe6dc || nextInstr == 0xec65) // WE6DC - Orbit screen copy routine of landing or grid
@@ -2060,14 +2077,14 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 if (nextInstr == 0x9cfc) // .LOCAL-ICONS basically the screen update function
                 {
                     uint16_t localCount = Read16(0x59f5); // ILOCAL?
-                    //printf("localCount %d\n", localCount);
+                    //SF_Log("localCount %d\n", localCount);
 
                     s_currentIconList.clear();
 
                     //ASMCall(0x7577); // CI
                     //uint16_t hi_iaddr = Pop();
                     //uint16_t lo_iaddr = Pop();
-                    //printf("CI is presently 0x%x\n", hi_iaddr << 16 | lo_iaddr);
+                    //SF_Log("CI is presently 0x%x\n", hi_iaddr << 16 | lo_iaddr);
 
                     auto currentCI = ForthGetCurrent();
 
@@ -2174,7 +2191,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                             // OFFSET World to blit x 4 y 6, e.g. one 1x1 world coordinate translates to 4x6 world coordinates
 
-                            printf("OFFSET World to screen x %d y %d\n", offsetScr.x - centerScreen.x, offsetScr.y - centerScreen.y);
+                            SF_Log("OFFSET World to screen x %d y %d\n", offsetScr.x - centerScreen.x, offsetScr.y - centerScreen.y);
                         }
                     }
 #endif
@@ -2227,7 +2244,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         {
                             auto ss = systemIt->second;
 
-                            //printf("Object at index %d is star system at %d x %d\n", i, ss.x, ss.y);
+                            //SF_Log("Object at index %d is star system at %d x %d\n", i, ss.x, ss.y);
 
                             found = true;
                         }
@@ -2238,7 +2255,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         {
                             auto p = planetIt->second;
 
-                            //printf("Object at index %d is star system at %d x %d in orbit %d seed 0x%x\n", i, p.x, p.y, p.orbit, p.seed);
+                            //SF_Log("Object at index %d is star system at %d x %d in orbit %d seed 0x%x\n", i, p.x, p.y, p.orbit, p.seed);
 
                             icon.seed = p.seed;
 
@@ -2275,31 +2292,31 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         }
                         if (it->second == "ELEMENT")
                         {
-                            printf("Element at index %d is at %d x %d of quantity %d of type %d\n", idx, icon.locationX, icon.locationY, icon.quantity, icon.elementType);
+                            SF_Log("Element at index %d is at %d x %d of quantity %d of type %d\n", idx, icon.locationX, icon.locationY, icon.quantity, icon.elementType);
                             found = true;
                         }
                         if (it->second == "TVEHICLE")
                         {
-                            printf("Terrain vehicle at index %d is at %d x %d\n", idx, icon.locationX, icon.locationY);
+                            SF_Log("Terrain vehicle at index %d is at %d x %d\n", idx, icon.locationX, icon.locationY);
                             found = true;
                         }
                         if (it->second == "CREATURE")
                         {
-                            printf("Creature at index %d is at %d x %d\n", idx, icon.locationX, icon.locationY);
+                            SF_Log("Creature at index %d is at %d x %d\n", idx, icon.locationX, icon.locationY);
                             found = true;
                         }
                         if (it->second == "ARTIFACT")
                         {
-                            printf("Artifact at index %d is at %d x %d\n", idx, icon.locationX, icon.locationY);
+                            SF_Log("Artifact at index %d is at %d x %d\n", idx, icon.locationX, icon.locationY);
                             found = true;
                         }
                         if (it->second == "RUIN")
                         {
-                            printf("Ruin at index %d is at %d x %d species %d\n", idx, icon.locationX, icon.locationY, icon.species);
+                            SF_Log("Ruin at index %d is at %d x %d species %d\n", idx, icon.locationX, icon.locationY, icon.species);
                             found = true;
                         }
 
-                        //printf("Object at index %d is %s, iaddr 0x%x found? %d\n", i, it->second.c_str(), current_iaddr, found);
+                        //SF_Log("Object at index %d is %s, iaddr 0x%x found? %d\n", i, it->second.c_str(), current_iaddr, found);
 
                         if(!found)
                         {
@@ -2314,18 +2331,18 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                                 if (it->first == 0xb)
                                 {
                                     // More things to unbox than just planets and stars?
-                                    printf("Object at index %d is %s, iaddr 0x%x offset 0x%x\n", idx, it->second.data(), icon.iaddr, inst.off);
+                                    SF_Log("Object at index %d is %s, iaddr 0x%x offset 0x%x\n", idx, it->second.data(), icon.iaddr, inst.off);
 
                                     assert(false);
                                 }
                             }
                             else
                             {
-                                printf("Object at index %d has unknown iaddr 0x%x\n", idx, icon.iaddr);
+                                SF_Log("Object at index %d has unknown iaddr 0x%x\n", idx, icon.iaddr);
                                 //assert(false);
                             }
 
-                            printf("Locus %d of %d index %d inst type %s, X: %d (%d) (%d), Y: %d (%d) (%d), ID: %u, CLR: %u\n", idx, localCount, idx, it->second.c_str(), icon.x, icon.screenX, icon.bltX, icon.y, icon.screenY, icon.bltY, icon.id, icon.clr);
+                            SF_Log("Locus %d of %d index %d inst type %s, X: %d (%d) (%d), Y: %d (%d) (%d), ID: %u, CLR: %u\n", idx, localCount, idx, it->second.c_str(), icon.x, icon.screenX, icon.bltX, icon.y, icon.screenY, icon.bltY, icon.id, icon.clr);
                         }
 
                         s_currentIconList.push_back(icon);
@@ -2553,7 +2570,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         useFont = 3;
                     }
 
-                    printf("{%dFONT} char '%c'\n", useFont, character);
+                    SF_Log("{%dFONT} char '%c'\n", useFont, character);
 
                     int color = Read16(0x55F2); // COLOR
                     int x0 = Read16(0x586E);
@@ -2634,7 +2651,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     // Sleep
                     auto sleepInMs = Pop();
                     std::this_thread::sleep_for(std::chrono::milliseconds(sleepInMs));
-                    printf("Sleep ms: %d\n", sleepInMs);
+                    SF_Log("Sleep ms: %d\n", sleepInMs);
                 }
                 else
                 {
@@ -2671,7 +2688,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     int16_t cursorX = (int16_t)Read16(0xd9f6);
                     int16_t cursorY = (int16_t)Read16(0xd9fa);
 
-                    printf("SET-DESTINATION out %d, wrld %d,%d cursor %d, %d\n", setDest, worldCoordsX, worldCoordsY, cursorX, cursorY);
+                    SF_Log("SET-DESTINATION out %d, wrld %d,%d cursor %d, %d\n", setDest, worldCoordsX, worldCoordsY, cursorX, cursorY);
                 }
 
                 if ((nextInstr == 0xe4fa) || ((nextInstr == 0xf208 && (std::string(overlayName) == "COMBAT-OV")))) // (?NEWHEADXY)
@@ -2684,12 +2701,12 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                     s_heading = { newWorldX, newWorldY };
                     
-                    printf("(?NEWHEADXY) - %d %d\n", newWorldX, newWorldY);
+                    SF_Log("(?NEWHEADXY) - %d %d\n", newWorldX, newWorldY);
                 }
 
                 if (nextInstr == 0xe4b6) // (PHRASE>CT)
                 {
-                    //printf("We recorded the string '%s'\n", s_recordedText.c_str());
+                    //SF_Log("We recorded the string '%s'\n", s_recordedText.c_str());
                     if (s_recordedText.substr(0, 11) == "RECEIVING: ") // Check if s_recordedText starts with "RECEIVING: "
                     {
                         std::string recordedTextWithoutReceiving = s_recordedText.substr(11); // Remove "RECEIVING: " from the start
@@ -2709,7 +2726,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 {
                     frameSync.maneuvering = false;
                     frameSync.maneuveringEndTime = std::chrono::steady_clock::now();
-                    printf("frameSync.maneuvering = false\n");
+                    SF_Log("frameSync.maneuvering = false\n");
                     GraphicsSetDeadReckoning(0, 0, s_currentIconList, s_currentSolarSystem, s_orbitMask, s_currentStarMap, s_missiles, s_lasers, s_explosions);
                 }
 
@@ -2770,7 +2787,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                     for(const auto& missile : missiles)
                     {
-                        printf("Missile %llu %f - CurrX: %d, CurrY: %d, DestX: %d, DestY: %d, Origin: %d, Class: %d, DeltaX: %d, DeltaY: %d\n",
+                        SF_Log("Missile %llu %f - CurrX: %d, CurrY: %d, DestX: %d, DestY: %d, Origin: %d, Class: %d, DeltaX: %d, DeltaY: %d\n",
                                missile.nonce, (float)frameSync.completedFrames, missile.mr.currx, missile.mr.curry, missile.mr.destx, missile.mr.desty, missile.mr.morig, missile.mr.mclass, missile.mr.deltax, missile.mr.deltay);
                     }
 
@@ -2787,7 +2804,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 if (nextInstr == 0xF069) // WF069 AKA GET-MPS
                 {
                     const uint16_t cc_MPS = 0x5245;
-                    printf("MPS %u\n", Read16(cc_MPS));
+                    SF_Log("MPS %u\n", Read16(cc_MPS));
                 }
 
                 if( nextInstr == 0xe6e4 && (std::string(overlayName) == "COMBAT-OV")) // COMBAT minstall (allocate missiles)
@@ -2811,7 +2828,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     unsigned mini_width, mini_height;
                     unsigned mini_error = lodepng::decode(mini_png, mini_width, mini_height, "mini_earth.png", LCT_GREY, 8);
                     if (mini_error) {
-                        fprintf(stderr, "Error decoding mini PNG: %u: %s\n", mini_error, lodepng_error_text(mini_error));
+                        SF_Log( "Error decoding mini PNG: %u: %s\n", mini_error, lodepng_error_text(mini_error));
                     }
 
                     for (int j = 23; j >= 0; j--)
@@ -3004,35 +3021,35 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x3A39: // "@EXECUTE"
             bx = Read16(Pop()) - 2;
-            //printf("jump to %x\n", bx);
+            //SF_Log("jump to %x\n", bx);
             ret = Call(Read16(bx), bx);
             if (ret != OK) return ret;
         break;
 
         case 0x1675: // "CFAEXEC"
             bx = Pop();
-            //printf("jump to %x\n", bx);
+            //SF_Log("jump to %x\n", bx);
             ret = Call(Read16(bx), bx);
             if (ret != OK) return ret;
             break;
 
         case 0x1684: // "EXECUTE"
             bx = Pop() - 2;
-            //printf("execute %s\n", FindWord(bx+2, -1));
+            //SF_Log("execute %s\n", FindWord(bx+2, -1));
             ret = Call(Read16(bx), bx);
             if (ret != OK) return ret;
         break;
 
         case 0x17B7: // Exec function pointers "CREATE" "TYPE", "CALL", "ABORT" "PAGE", ...
         {
-            //printf("%04x\n", bx);
+            //SF_Log("%04x\n", bx);
             //exit(1);
             int bxtemp = bx;
             bx += 2;  // points to data in word
             bx = Read16(bx);
             if (bx == 0x5a) // EMIT
             {
-              //printf("EMIT: \n");
+              //SF_Log("EMIT: \n");
               //PrintCallstacktrace(bxtemp);
 
             }
@@ -3041,7 +3058,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             {
               int n = Read16(regsp);
               int offset = Read16(regsp+2);
-              //printf("(TYPE): ");
+              //SF_Log("(TYPE): ");
 
               std::string outStr{};
 
@@ -3052,7 +3069,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
               if(outStr == "RECEIVING:")
               {
-                printf("\n");
+                SF_Log("\n");
               }
 
               if (s_shouldRecordText)
@@ -3060,52 +3077,52 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                   s_recordedText += outStr + " ";
               }
 
-              printf("TYPE: %s\n", outStr.c_str());
+              SF_Log("TYPE: %s\n", outStr.c_str());
 
-              //if (Read8(offset+n-1) != '\n') printf("\n");
+              //if (Read8(offset+n-1) != '\n') SF_Log("\n");
             }
 
             bx = Read16(bx+regdi);
             bx -= 2;
 
             const char *s = FindWord(bx+2, -1);
-            //printf("Execute %s\n", s);
+            //SF_Log("Execute %s\n", s);
             if (strcmp(s, "(TYPE)") == 0)
             {
                 int n = Read16(regsp);
                 int offset = Read16(regsp+2);
                 /*
-                printf("(TYPE): ");
+                SF_Log("(TYPE): ");
                 for(int i=0; i<n; i++)
-                    printf("%c", Read8(offset+i));
-                printf("\n");
+                    SF_Log("%c", Read8(offset+i));
+                SF_Log("\n");
                 */
                 GraphicsText((char*)&mem[offset], n);
             }
             if (strcmp(s, "(CR)") == 0)
             {
-                printf("\n");
+                SF_Log("\n");
                 GraphicsCarriageReturn();
             }
             if (strcmp(s, "(POSITION)") == 0)
             {
-                //printf("%i, %i\n", Read16(regsp), Read16(regsp+2));
+                //SF_Log("%i, %i\n", Read16(regsp), Read16(regsp+2));
                 GraphicsSetCursor(Read16(regsp), Read16(regsp+2));
             }
             if (strcmp(s, "(EMIT)") == 0) // print one char
             {
                 // TODO if terminal mode
-                printf("%c", Read16(regsp));
+                SF_Log("%c", Read16(regsp));
                 // TODO otherwise
                 GraphicsChar(Read16(regsp));
                 //GraphicsUpdate();
-                //printf("(EMIT) %i\n", Read16(regsp));
+                //SF_Log("(EMIT) %i\n", Read16(regsp));
             }
             if (strcmp(s, "(WORD)") == 0) // scans input stream for char and copies
             {
                 //unsigned short offset = Read16(REGDI+0x12);
                 //PrintCallstacktrace(bx);
-                //printf("%i offset %i\n", Read16(regsp), offset);
+                //SF_Log("%i offset %i\n", Read16(regsp), offset);
                 //exit(1);
             }
             if (strcmp(s, "(KEY)") == 0)
@@ -3127,19 +3144,19 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         case 0x21C9: // TODO for forth interpreter, is incomplete
         {
             // Check for stack size and jump to error handling
-            //printf("Info: %i 0x%x\n", Read16(0x0A0B), Read16(regdi+4));
+            //SF_Log("Info: %i 0x%x\n", Read16(0x0A0B), Read16(regdi+4));
             unsigned short ax = Read16(0x0A0B); // #SPACE (256)
             ax += Read16(regdi+4);
             if ((Read16(0x0A0B) + Read16(regdi+4)) > 0xFFFF)
             {
-                fprintf(stderr, "TODO: Error handling part 1. Empty or full stack\n");
+                SF_Log( "TODO: Error handling part 1. Empty or full stack\n");
                 exit(1);
             }
             // if error:
             /*
             bx = 0xB10;
             bx = Read16(bx);
-            printf("Jump to %x\n", bx);
+            SF_Log("Jump to %x\n", bx);
             exit(1);
             */
 // 0x21c9: mov    ax,[0A0B] // #SPACE
@@ -3169,17 +3186,17 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 auto printSerialized = [&]{
                     if(serialized)
                     {
-                        printf("Saved state to %s\n", filename.c_str());
+                        SF_Log("Saved state to %s\n", filename.c_str());
                     }
                     else
                     {
                         if(frameSync.shouldSave)
                         {
-                            printf("Failed to serialize state.\n");
+                            SF_Log("Failed to serialize state.\n");
                         }
                         else
                         {
-                            printf("Did not serialize state as it was not requested.\n");
+                            SF_Log("Did not serialize state as it was not requested.\n");
                         }
                     }
                 };
@@ -3190,7 +3207,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 }
 
                 bx = Pop();
-                printf("jump to %x. Either stop (0x0) or restart (0x100)\n", bx);
+                SF_Log("jump to %x. Either stop (0x0) or restart (0x100)\n", bx);
                 printSerialized();
                 
                 // Should just show pop up with UI
@@ -3211,7 +3228,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         case 0x0EC8: regbp = Read16(regdi+2); break; // RP!
 
         case 0x83f8: // all overlays
-            //printf("Load overlay '%s'\n", FindWord(bx+2, -1));
+            //SF_Log("Load overlay '%s'\n", FindWord(bx+2, -1));
             ret = ParameterCall(bx, 0x83f8);
             break;
         case 0x5275: ret = ParameterCall(bx, 0x5275); break; // "OVT" "IARRAYS"
@@ -3253,17 +3270,17 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             }
         case 0x7227:
         {
-            //printf("Receive %s from STAR*.COM dictionary for index 0x%x: '%s'\n", FindWord(bx+2, -1), Read16(regsp), FindDirectoryName(Read16(regsp)));
+            //SF_Log("Receive %s from STAR*.COM dictionary for index 0x%x: '%s'\n", FindWord(bx+2, -1), Read16(regsp), FindDirectoryName(Read16(regsp)));
             //PrintCallstacktrace(bx);
-            //printf("slen of =%i regsp=%i\n", Read16(regsp), regsp);
+            //SF_Log("slen of =%i regsp=%i\n", Read16(regsp), regsp);
             const char *s = FindDirectoryName(Read16(regsp));
             if (s == NULL)
             {
               PrintCallstacktrace(bx);
-              return ERROR;
+              return EMULATOR_ERROR;
             }
 
-            //printf("Load data    '%s'\n", s);
+            //SF_Log("Load data    '%s'\n", s);
             // "FILE-NA FILE-TY FILE-ST FILE-EN FILE-#R FILE-RL FILE-SL"
             ret = ParameterCall(bx, 0x7227);
           }
@@ -3275,14 +3292,14 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
           if (s == NULL)
           {
             PrintCallstacktrace(bx);
-            return ERROR;
+            return EMULATOR_ERROR;
           }
-          printf("load adata FILE# '%s' RECORD# %i at regsi=0x%04x\n", s, Read16(0x549d), regsi-2);
-          //printf("%i %i\n", Read16(0x547b), Read16(0x547f));
+          SF_Log("load adata FILE# '%s' RECORD# %i at regsi=0x%04x\n", s, Read16(0x549d), regsi-2);
+          //SF_Log("%i %i\n", Read16(0x547b), Read16(0x547f));
           /*
           if ((Read16(0x549d) == 51) && (regsi == 0xf01c+2))
           {
-            printf("read from 51\n");
+            SF_Log("read from 51\n");
             PrintCache();
             PrintCStack();
             PrintCallstacktrace(bx);
@@ -3306,14 +3323,14 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             uint16_t key = GraphicsGetKey();
             Push(key);
 
-            printf("KEY %u\n", key);
+            SF_Log("KEY %u\n", key);
 
             /*
             // 1. either low byte ascii, high byte 0
             // 2. or low byte scancode, high byte 1
             unsigned short c;
             c = GraphicsGetChar();
-            //printf("key %i\n", c);
+            //SF_Log("key %i\n", c);
             if (c == 0xa) c = 0xd;
             Push(c);
             */
@@ -3400,7 +3417,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x160:  // "(!OLD)" read interrupt vector table
             bx = Pop();
-            //printf("read interrupt %x\n", bx);
+            //SF_Log("read interrupt %x\n", bx);
             if (bx == 0x9)
             {
                 Push(0xf000);
@@ -3443,8 +3460,8 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             #if 0 // Uncomment to continue to dump files
             // Write out 1024 bytes at ax,cx to a file
             char filename[64];
-            sprintf(filename, "%04x-%04x.bin", cx, ax);
-            printf("write interrupt vector table - %s\n", filename);
+            sscanf(filename, "%04x-%04x.bin", cx, ax);
+            SF_Log("write interrupt vector table - %s\n", filename);
             FILE *fp = fopen(filename, "wb");
             if (fp != NULL)
             {
@@ -3457,8 +3474,8 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             {
                 unsigned short tempbx = 0;
 
-                sprintf(filename, "%04x-%04x.bin", cx, tempbx);
-                printf("write ISR jump - %s\n", filename);
+                sscanf(filename, "%04x-%04x.bin", cx, tempbx);
+                SF_Log("write ISR jump - %s\n", filename);
                 fp = fopen(filename, "wb");
                 if (fp != NULL)
                 {
@@ -3652,7 +3669,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             {
                 unsigned short ax = 0;
                 dx = Pop();
-                //printf("search %i\n", dx);
+                //SF_Log("search %i\n", dx);
                 Push(regdi);
                 Push(regsi);
                 Push(regbp);
@@ -3664,7 +3681,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 {
                     regbp = (cx-1)<<1;
                     regsi = 0x2D74 + regbp;
-                    //printf("%i %i %i\n", cx, regbp, Read16(regsi));
+                    //SF_Log("%i %i %i\n", cx, regbp, Read16(regsi));
                     ax = dx;
                     ax = ax - Read16(regsi);
                     if (ax&0x8000) continue;
@@ -3745,7 +3762,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         break;
 
         case 0x1FA: // overwrite interrupt 0 to and div 0?
-            printf("Divide by zero interrupt.");
+            SF_Log("Divide by zero interrupt.");
             //PrintCallstacktrace(bx);
             /*Push(0x20F);Push(0x7246);Push(0x1FE);Push(0x1CF);Pop();Pop();Pop();Pop(); */
         break;
@@ -3826,7 +3843,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             */
             if(Read16(0x0193) != 0)
             {
-                printf("We wrote 0x%04x:0x%04x - 193 - 0x%04x\n", Read16(0x018A), Read16(0x0188), Read16(0x0193));
+                SF_Log("We wrote 0x%04x:0x%04x - 193 - 0x%04x\n", Read16(0x018A), Read16(0x0188), Read16(0x0193));
             }
             Write16(0x193, 0x0);
             Push(0x188);
@@ -3885,7 +3902,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 auto srcOffset = Pop();
                 auto srcSeg = Pop();
                 
-                //printf("move display from (TODO) 0x%04x:0x%04x to 0x%04x:0x%04x\n",  srcSeg, srcOffset, destSeg, destOffset);
+                //SF_Log("move display from (TODO) 0x%04x:0x%04x to 0x%04x:0x%04x\n",  srcSeg, srcOffset, destSeg, destOffset);
 
                 assert(srcOffset == 0);
                 assert(destOffset == 0);
@@ -3968,7 +3985,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 int bufseg = Read16(0x5648);
                 int xormode = Read16(0x587C);
 
-                //printf("blt xblt=%i yblt=%i lblt=%i wblt=%i color=%i 0x%04x:0x%04x 0x%04x xor %d\n", x0, y0, w, h, color, bltseg, bltoffs, bufseg, xormode);
+                //SF_Log("blt xblt=%i yblt=%i lblt=%i wblt=%i color=%i 0x%04x:0x%04x 0x%04x xor %d\n", x0, y0, w, h, color, bltseg, bltoffs, bufseg, xormode);
                 Rotoscope rs{};
                 if (frameSync.inDrawStarMap)
                 {
@@ -4129,7 +4146,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 icon.screenY = Pop();
                 icon.screenX = Pop();
 
-                printf("Locus %d of %d index %d, X: %d (%d), Y: %d (%d), ID: %u, CLR: %u, IADDR: %u\n", i, locusCount, index, icon.x, icon.screenX, icon.y, icon.screenY, icon.id, icon.clr, (icon.hi_iaddr << 16) | icon.lo_iaddr);
+                SF_Log("Locus %d of %d index %d, X: %d (%d), Y: %d (%d), ID: %u, CLR: %u, IADDR: %u\n", i, locusCount, index, icon.x, icon.screenX, icon.y, icon.screenY, icon.id, icon.clr, (icon.hi_iaddr << 16) | icon.lo_iaddr);
             }
 #endif
         }
@@ -4178,7 +4195,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             auto bufseg = Read16(0x5648); // BUF-SEG
             uint8_t color = Read8(0x55F2);
 
-            //printf("LFILLPOLY YMIN %d YMAX %d SCAN 0x%x\n", YMIN, YMAX, SCAN);
+            //SF_Log("LFILLPOLY YMIN %d YMAX %d SCAN 0x%x\n", YMIN, YMAX, SCAN);
 
 
             for(uint16_t y = YMIN; y <= YMAX; ++y)
@@ -4191,7 +4208,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                 auto xl = Read8(rasterOffset);
                 auto xr = Read8(rasterOffset + 1);
-                //printf("LFILLPOLY y %d, xl %d, xr %d color %d\n", y, xl, xr, color);
+                //SF_Log("LFILLPOLY y %d, xl %d, xr %d color %d\n", y, xl, xr, color);
 
                 for(uint16_t x = xl; x <= xr; ++x)
                 {
@@ -4270,7 +4287,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         case 0x8F8B: // "BFILL"
         {
             int color = Read16(0x55F2); // COLOR
-            //printf("bfill (TODO) color=%i ega=%i segment=0x%04x count=0x%04x\n", Read16(0x55F2), Read16(0x5DA3), Read16(0x5648), Read16(0x5656));
+            //SF_Log("bfill (TODO) color=%i ega=%i segment=0x%04x count=0x%04x\n", Read16(0x55F2), Read16(0x5DA3), Read16(0x5648), Read16(0x5656));
             GraphicsClear(color, Read16(0x5648), Read16(0x5656));
         }
         break;
@@ -4284,7 +4301,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 {
                     int seg = Read16(i+3);
                     int ofs = Read16(i+1);
-                printf("%20s 0x%02x, 0x%04x, 0x%04x, 0x%02x : 0x%02x 0x%02x\n", FindWord(i, -1), Read8(i), seg, ofs, Read8(i+5), Read8Long(seg, ofs), Read8Long(seg, ofs+1));
+                SF_Log("%20s 0x%02x, 0x%04x, 0x%04x, 0x%02x : 0x%02x 0x%02x\n", FindWord(i, -1), Read8(i), seg, ofs, Read8(i+5), Read8Long(seg, ofs), Read8Long(seg, ofs+1));
                 }
             }
             exit(1);
@@ -4293,7 +4310,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             int x2 = Pop();
             int y1 = Pop();
             int x1 = Pop();
-            //printf("lline %i %i %i %i\n", x1, y1, x2, y2);
+            //SF_Log("lline %i %i %i %i\n", x1, y1, x2, y2);
             GraphicsLine(x1, y1, x2, y2, Read16(0x55F2), Read16(0x587C), Read16(0x5648));
         }
         break;
@@ -4338,7 +4355,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x8D8B: // >LORES
             {
-                printf("set video mode monitor=%i ?ega=%i\n", Read16(0x584A), Read16(0x5DA3));
+                SF_Log("set video mode monitor=%i ?ega=%i\n", Read16(0x584A), Read16(0x5DA3));
 
                 uint16_t ax, local_cx, local_dx, di, si;
                 uint8_t& al = reinterpret_cast<uint8_t*>(&ax)[0];
@@ -4347,12 +4364,12 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 uint8_t& bh = reinterpret_cast<uint8_t*>(&bx)[1];
 
                 auto Outport = [&](uint16_t port, uint8_t val) {
-                    printf("Output 0x%x, 0x%x\n", port, val);
+                    SF_Log("Output 0x%x, 0x%x\n", port, val);
                 };
 
                 auto Sub8CEB = [&]() {
                     ax = 0x8D;
-                    printf("Set video mode %d\n", al & 0xf);
+                    SF_Log("Set video mode %d\n", al & 0xf);
                     dx = 0x03CE;
                     al = 1;
                     ah = 0x0F;
@@ -4379,7 +4396,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 di = Read16(0x584A); // MONITOR
                 if (di == 4) {
                     // HGRAPH();
-                    printf("Hercules graphics not supported.\n");
+                    SF_Log("Hercules graphics not supported.\n");
                     assert(false);
                 } else {
                     ax = Read16(0x5DA3); // ?EGA
@@ -4391,7 +4408,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         SET6845();
                         if (Read16(0x84EC) == 1) { // ?TANDRG
                             //Sub8D48();
-                            printf("Tandy graphics not supported.\n");
+                            SF_Log("Tandy graphics not supported.\n");
                             assert(false);
                         } else {
                             bx = 0x1A27;
@@ -4416,7 +4433,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x8DF0: // set text mode
         {
-            printf("set text mode\n");
+            SF_Log("set text mode\n");
             GraphicsMode(0);
         }
         break;
@@ -4429,7 +4446,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             Write8(regdi+0x1B, ax&0xFF);
             Write8(regdi+0x1A, bx&0xFF);
             // int10h
-            //printf("position %i %i di=0x%04x\n", ax, bx, di);
+            //SF_Log("position %i %i di=0x%04x\n", ax, bx, di);
         }
         break;
 
@@ -4458,7 +4475,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             unsigned short ax = Pop(); // color and char
             Write16Long(seg, bx, ax);
             //ds = cx;
-            //printf("PutChar 0x%04x 0x%04x at segment: 0x%04x\n", bx, ax, seg);
+            //SF_Log("PutChar 0x%04x 0x%04x at segment: 0x%04x\n", bx, ax, seg);
         }
         break;
 
@@ -4470,14 +4487,14 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             int tempdi = Pop();
             int tempsi = Pop();
             int j=0;
-            //printf("Write %i bytes/words to 0x%x:0x%x\n", cx, es, tempdi);
+            //SF_Log("Write %i bytes/words to 0x%x:0x%x\n", cx, es, tempdi);
             //0x2809
             if (es == 0xb800)
             {
                 /*
                 for(i=0; i<cx; i++)
-                    printf("%c", Read8(tempsi+i));
-                printf("\n");
+                    SF_Log("%c", Read8(tempsi+i));
+                SF_Log("\n");
                 */
             }
             for(i=2; i<cx; i++)
@@ -4493,7 +4510,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         case 0xf379: // ".EGARUNBIT" from BLT-OV\n
         {
             int color = Read8(0x55F2)&0xF;
-            //printf(".EGARUNBIT color=0x%04x\n", color);
+            //SF_Log(".EGARUNBIT color=0x%04x\n", color);
             //int bright = Read8(0x535C);
             int XBLT = Read16(0x586E);
             int YBLT = Read16(0x5863);
@@ -4543,7 +4560,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                             ((argb & 0xFF00)) | // Keep green as is
                             ((argb & 0xFF0000) >> 16); // Move blue to rightmost
 
-            //printf("color=%i xblt=%i yblt=%i wblt=%i 0x%04x:0x%04x 0x%04x temp2=%i\n", color, XBLT, YBLT, WBLT, segment, offset, regsp, temp2);
+            //SF_Log("color=%i xblt=%i yblt=%i wblt=%i 0x%04x:0x%04x 0x%04x temp2=%i\n", color, XBLT, YBLT, WBLT, segment, offset, regsp, temp2);
             xofs = 0;
             int yofs = 0;
             for(int k=0; k<temp2; k++)
@@ -4601,7 +4618,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             // Store the ARGB image in pixImage into a png file
             // std::string filename = "pix/pix_" + std::to_string(rc.runBitData.tag) + ".png";
             // unsigned error = lodepng::encode(filename, (const unsigned char*)it->second.data(), WBLT, verticalLines, LCT_RGBA);
-            // if(error) printf("encoder error %u: %s\n", error, lodepng_error_text(error));
+            // if(error) SF_Log("encoder error %u: %s\n", error, lodepng_error_text(error));
         }
         break;
 
@@ -4875,7 +4892,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         // ------------------------------
 
-        case 0x1792: Push(Read16(bx+2) + regdi); /*printf("Read 0x%04x\n", Read16(bx+2)); */break; // di is always the same value. Points to WORD "OPERATOR"
+        case 0x1792: Push(Read16(bx+2) + regdi); /*SF_Log("Read 0x%04x\n", Read16(bx+2)); */break; // di is always the same value. Points to WORD "OPERATOR"
         case 0x0c17: Push(call_cs); break; // "(CS?)"
         case 0x0F14: Push(regsp); break; // "SP@"
         case 0x49c2: Push(ds); break; // "@DS"
@@ -4979,7 +4996,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         case 0x937b: // SETCOLOR
         {
             uint8_t c = Read8(0x55F2);
-            //printf("SETCOLOR %d\n", c);
+            //SF_Log("SETCOLOR %d\n", c);
         }
         break;
         case 0x992d: // "?INVIS"
@@ -5221,7 +5238,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 uint16_t yul = Pop();
                 uint16_t xul = Pop();
                 #if 0
-                printf("TILEFILL xul %u yul %u len %u width %u\n",
+                SF_Log("TILEFILL xul %u yul %u len %u width %u\n",
                     xul, yul,
                     len, width);
                 #endif
@@ -5263,10 +5280,10 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             }
             break;
         default:
-            printf("unknown opcode 0x%04x at si = 0x%04x\n", addr, regsi);
+            SF_Log("unknown opcode 0x%04x at si = 0x%04x\n", addr, regsi);
             PrintCallstacktrace(bx);
             fflush(stdout);
-            return ERROR;
+            return EMULATOR_ERROR;
         break;
     }
     return ret;
@@ -5279,7 +5296,7 @@ void SaveSTARFLT()
     fp = fopen("starflt1-in/STARPAT.COM", "wb");
     if (fp == NULL)
     {
-        fprintf(stderr, "Error: Cannot write file %s\n", FILESTAR0);
+        SF_Log( "Error: Cannot write file %s\n", FILESTAR0);
         exit(1);
     }
     ret = fwrite(&mem[0x100], FILESTAR0SIZE, 1, fp);
@@ -5296,34 +5313,34 @@ void LoadSTARFLT(std::filesystem::path path)
 
     char cwd[1024];
     if (_getcwd(cwd, sizeof(cwd)) != NULL) {
-        fprintf(stderr, "LoadSTARFLT: cwd = %s\n", cwd);
+        SF_Log( "LoadSTARFLT: cwd = %s\n", cwd);
     } else {
-        fprintf(stderr, "LoadSTARFLT: getcwd failed\n");
+        SF_Log( "LoadSTARFLT: getcwd failed\n");
     }
-    fprintf(stderr, "LoadSTARFLT: g_ProjectDirectory = %s\n", g_ProjectDirectory.c_str());
+    SF_Log( "LoadSTARFLT: g_ProjectDirectory = %s\n", g_ProjectDirectory.c_str());
 
     // Construct full path to game files
     std::string star0Path = g_ProjectDirectory + FILESTAR0;
     std::string staraPath = g_ProjectDirectory + FILESTARA;
     std::string starbPath = g_ProjectDirectory + FILESTARB;
     
-    fprintf(stderr, "LoadSTARFLT: Trying to load %s\n", star0Path.c_str());
+    SF_Log( "LoadSTARFLT: Trying to load %s\n", star0Path.c_str());
 
     memset(mem, 0, 0x10000);
     fp = fopen(star0Path.c_str(), "rb");
     if (fp == NULL)
     {
-        fprintf(stderr, "Error: Cannot find file %s\n", star0Path.c_str());
+        SF_Log( "Error: Cannot find file %s\n", star0Path.c_str());
         exit(1);
     }
     ret = fread(&mem[0x100], FILESTAR0SIZE, 1, fp);
     fclose(fp);
 
-    fprintf(stderr, "LoadSTARFLT: Trying to load %s\n", staraPath.c_str());
+    SF_Log( "LoadSTARFLT: Trying to load %s\n", staraPath.c_str());
     fp = fopen(staraPath.c_str(), "rb");
     if (fp == NULL)
     {
-        fprintf(stderr, "Cannot open file %s\n", staraPath.c_str());
+        SF_Log( "Cannot open file %s\n", staraPath.c_str());
         exit(1);
     }
     ret = fread(STARA_ORIG, 256000, 1, fp);
@@ -5332,7 +5349,7 @@ void LoadSTARFLT(std::filesystem::path path)
     fp = fopen(starbPath.c_str(), "rb");
     if (fp == NULL)
     {
-        fprintf(stderr, "Cannot open file %s\n", starbPath.c_str());
+        SF_Log( "Cannot open file %s\n", starbPath.c_str());
         exit(1);
     }
     ret = fread(STARB_ORIG, 362496, 1, fp);
@@ -5346,7 +5363,7 @@ void LoadSTARFLT(std::filesystem::path path)
     else
     {
         if (!Deserialize(path, serializedRotoscope, serializedSnapshot)) {
-            fprintf(stderr, "Error: Cannot deserialize file %s\n", path.string().c_str());
+            SF_Log( "Error: Cannot deserialize file %s\n", path.string().c_str());
             exit(1);
         }
     }
@@ -5363,26 +5380,26 @@ enum RETURNCODE Step()
     regsi += 2;
     unsigned short bx = ax;
     unsigned short execaddr = Read16(bx);
-    //if (regsi-2 == 0xea37) printf(" enter %s\n", FindWord(bx+2, -1));
+    //if (regsi-2 == 0xea37) SF_Log(" enter %s\n", FindWord(bx+2, -1));
 
     if (debuglevel)
     {
       int ovidx = GetOverlayIndex(Read16(0x55a5), nullptr);
-      printf("si=0x%04x exec=0x%04x word=0x%04x sp=0x%04x ov=%2i", regsi-2, execaddr, bx+2, regsp, ovidx);
-      printf(" %s\n", FindWord(bx+2, -1));
+      SF_Log("si=0x%04x exec=0x%04x word=0x%04x sp=0x%04x ov=%2i", regsi-2, execaddr, bx+2, regsp, ovidx);
+      SF_Log(" %s\n", FindWord(bx+2, -1));
     }
 
-    if (bx == 0xe121-2) printf("lookup 0x%04x 0x%04x 0x%04x\n", Read16(regsp), Read16(regsp+2), Read16(regsp+4));
-    if (execaddr == 0xe114) printf("iaddr 0x%04x 0x%04x 0x%04x\n", Read16(regsp), Read16(regsp+2), Read16(regsp+4));
+    if (bx == 0xe121-2) SF_Log("lookup 0x%04x 0x%04x 0x%04x\n", Read16(regsp), Read16(regsp+2), Read16(regsp+4));
+    if (execaddr == 0xe114) SF_Log("iaddr 0x%04x 0x%04x 0x%04x\n", Read16(regsp), Read16(regsp+2), Read16(regsp+4));
 
 /*
     if (bx == 0x79f4-2) // >C+S
     {
-      printf(">C+S 0x%02x 0x%02x\n", Read16(regsp), Read16(regsp+2));
+      SF_Log(">C+S 0x%02x 0x%02x\n", Read16(regsp), Read16(regsp+2));
       PrintCallstacktrace(bx);
     }
 */
-    //printf("  0x%04x  %15s   %s\n", regsi, GetOverlayName(regsi, ovidx), FindWord(bx+2, ovidx));
+    //SF_Log("  0x%04x  %15s   %s\n", regsi, GetOverlayName(regsi, ovidx), FindWord(bx+2, ovidx));
 
     enum RETURNCODE ret = Call(execaddr, bx);
     return ret;

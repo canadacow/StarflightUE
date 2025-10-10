@@ -3,23 +3,33 @@
 #pragma warning(disable: 4459) // declaration hides global declaration
 #pragma warning(disable: 4101) // unreferenced local variable
 
-#ifdef read
-#undef read
-#endif
-#ifdef write  
-#undef write
-#endif
-
 #include "fract.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <algorithm>
+
+// Unreal Engine logging
+#include <stdarg.h>
+#include "Logging/LogMacros.h"
+
 #include <fstream>
 #include <iostream>
 
 #include "util/lodepng.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogStarflightFract, Log, All);
+
+// Simple wrapper to redirect printf-style logging to UE
+static void SF_Log(const char* Format, ...)
+{
+	static char Buffer[4096];
+	va_list Args;
+	va_start(Args, Format);
+	vsnprintf(Buffer, sizeof(Buffer), Format, Args);
+	va_end(Args);
+	UE_LOG(LogStarflightFract, Log, TEXT("%s"), ANSI_TO_TCHAR(Buffer));
+}
 
 //#ifndef DEBUG
 #define USE_INLINE_MEMORY
@@ -887,9 +897,9 @@ void FRACT_FRACTALIZE()
     Pop();
     fractalState.std = Pop();
 
-    //printf("FRACTALIZE xll=%i yll=%i xur=%i yur=%i std=%i\n", xll, yll, xur, yur, std);
+    //SF_Log("FRACTALIZE xll=%i yll=%i xur=%i yur=%i std=%i\n", xll, yll, xur, yur, std);
     //char debug_str[256];
-    //sprintf(debug_str, "FRACTALIZE xll=%i yll=%i xur=%i yur=%i std=%i\n", xll, yll, xur, yur, std);
+    //sSF_Log(debug_str, "FRACTALIZE xll=%i yll=%i xur=%i yur=%i std=%i\n", xll, yll, xur, yur, std);
     //OutputDebugStringA(debug_str);
 
     fractalState.ratio1 = Read16(0xe35e); // RATIO
@@ -905,7 +915,7 @@ void FRACT_FILLARRAY()
     bx = Read16(0x4CF1); // 'ARRAY
     cx = Read16(bx+4);
     bx = Read16(bx+6);
-    printf("FRACT_FILLARRAY count=%i es=0x%04x al=%i\n", cx, bx, ax&0xFF);
+    SF_Log("FRACT_FILLARRAY count=%i es=0x%04x al=%i\n", cx, bx, ax&0xFF);
     for(int i=0; i<cx; i++) Write8Long(bx, i, ax&0xFF);
 }
 
@@ -1348,7 +1358,7 @@ bool FractalGenerator::Initialize(const std::filesystem::path& planetDatabase)
     std::ifstream file(planetDatabase, std::ios::binary);
     if (!file.is_open())
     {
-        std::cerr << "Could not open file " << planetDatabase << std::endl;
+        SF_Log("Could not open file %s\n", planetDatabase.c_str());
         return false;
     }
 
@@ -1357,7 +1367,7 @@ bool FractalGenerator::Initialize(const std::filesystem::path& planetDatabase)
     file.read(reinterpret_cast<char*>(&mapSize), sizeof(mapSize));
     if (file.fail())
     {
-        std::cerr << "Failed to read map size from file " << planetDatabase << std::endl;
+        SF_Log("Failed to read map size from file %s\n", planetDatabase.c_str());
         return false;
     }
 
@@ -1368,7 +1378,7 @@ bool FractalGenerator::Initialize(const std::filesystem::path& planetDatabase)
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
         if (file.fail())
         {
-            std::cerr << "Failed to read key from file " << planetDatabase << std::endl;
+            SF_Log("Failed to read key from file %s\n", planetDatabase.c_str());
             return false;
         }
 
@@ -1376,7 +1386,7 @@ bool FractalGenerator::Initialize(const std::filesystem::path& planetDatabase)
         file.read(reinterpret_cast<char*>(&size), sizeof(size));
         if (file.fail())
         {
-            std::cerr << "Failed to read size from file " << planetDatabase << std::endl;
+            SF_Log("Failed to read size from file %s\n", planetDatabase.c_str());
             return false;
         }
 
@@ -1384,7 +1394,7 @@ bool FractalGenerator::Initialize(const std::filesystem::path& planetDatabase)
         file.read(reinterpret_cast<char*>(native.data()), size);
         if (file.fail())
         {
-            std::cerr << "Failed to read native data from file " << planetDatabase << std::endl;
+            SF_Log("Failed to read native data from file %s\n", planetDatabase.c_str());
             return false;
         }
 
@@ -1450,7 +1460,7 @@ PlanetSurface FractalGenerator::GetPlanetSurface(uint16_t planetInstanceIndex)
         unsigned mini_width, mini_height;
         unsigned mini_error = lodepng::decode(mini_png, mini_width, mini_height, "mini_earth.png", LCT_GREY, 8);
         if (mini_error) {
-            fprintf(stderr, "Error decoding mini PNG: %u: %s\n", mini_error, lodepng_error_text(mini_error));
+            SF_Log("Error decoding mini PNG: %u: %s\n", mini_error, lodepng_error_text(mini_error));
         }
     }
 
@@ -1478,12 +1488,12 @@ FullResPlanetData FractalGenerator::GetFullResPlanetData(uint16_t planetInstance
         unsigned MapWidth, MapHeight;
         unsigned error = lodepng::decode(image, MapWidth, MapHeight, "lofi_earth.png", LCT_GREY, 8);
         if (error) {
-            std::cerr << "decoder error " << error << ": " << lodepng_error_text(error) << std::endl;
+            SF_Log("decoder error %u: %s\n", error, lodepng_error_text(error));
             return FullResPlanetData{};
         }
 
         if (MapWidth != (planet_usable_width * planet_contour_width) || MapHeight != (planet_usable_height * planet_contour_height)) {
-            printf("Error: Map dimensions are not sane. Expected %dx%d but got %dx%d\n", 
+            SF_Log("Error: Map dimensions are not sane. Expected %dx%d but got %dx%d\n", 
                    planet_usable_width * planet_contour_width, planet_usable_height * planet_contour_height, 
                    MapWidth, MapHeight);
             return FullResPlanetData{};
@@ -1668,7 +1678,7 @@ FullResPlanetData FractalGenerator::GetFullResPlanetData(uint16_t planetInstance
             }
             else
             {
-                fprintf(stdout, "Error encoding PNG: %u: %s\n", error, lodepng_error_text(error));
+                SF_Log("Error encoding PNG: %u: %s\n", error, lodepng_error_text(error));
             }
         }
 
