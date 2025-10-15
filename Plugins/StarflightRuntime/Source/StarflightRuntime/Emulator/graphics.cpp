@@ -34,6 +34,9 @@ uint32_t colortable[16] = {
 
 bool graphicsIsShutdown = false;
 
+// Global emulation control flag used by call.cpp
+std::atomic<bool> stopEmulationThread{false};
+
 // Graphics state
 static std::atomic<int> s_graphicsMode{0}; // 0 = text, 1 = graphics
 static std::mutex s_framebufferMutex;

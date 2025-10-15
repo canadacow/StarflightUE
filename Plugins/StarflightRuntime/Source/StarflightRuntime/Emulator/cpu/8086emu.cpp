@@ -18,8 +18,7 @@
 #include <stdint.h>
 #include <assert.h>
 
-#include <array>
-
+ 
 #include "bios.h"
 
 #ifndef _WIN32
@@ -165,7 +164,7 @@ typedef int ssize_t;
 unsigned disassemble(unsigned seg, unsigned off, uint8_t *memory, int count);
 
 // Global variable definitions
-extern uint8_t* mem; // Defined in cpu.cpp
+static uint8_t* mem; // Defined in cpu.cpp
 static uint8_t io_ports[IO_PORT_COUNT];
 static uint8_t *opcode_stream;
 static uint8_t *regs8;

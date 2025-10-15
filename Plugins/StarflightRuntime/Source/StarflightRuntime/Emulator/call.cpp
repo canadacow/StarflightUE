@@ -70,9 +70,13 @@ FrameSync frameSync;
 
 unsigned int debuglevel = 0;
 
-const unsigned short call_cs = StarflightBaseSegment;
+const unsigned short cs = StarflightBaseSegment;
+unsigned short ds = StarflightBaseSegment;
+const unsigned short call_cs = cs;
 
 unsigned short int regdi = REGDI; // points to word "OPERATOR"
+unsigned short int cx = 0x0;
+unsigned short int dx = 0x0;
 
 static uint16_t CurrentImageTagForHybridBlit = 0;
 
@@ -336,10 +340,8 @@ void HandleInterrupt()
     static int disktransferaddress_segment = -1;
     static int disktransferaddress_offset = -1;
 
-    // CPU registers (local to this function)
-    unsigned short ds = StarflightBaseSegment;
-    unsigned short cx = 0x0;
-    unsigned short dx = 0x0;
+    // CPU registers (match original emulator semantics)
+    // use global ds
     
     #pragma pack(push, 1)
     struct FCB {
@@ -594,9 +596,9 @@ RETURNCODE ParameterCall(unsigned short bx, unsigned short addr)
 
 void LXCHG16(unsigned short es, unsigned short bx, unsigned short ax) //  "{LXCHG}"
 {
-    unsigned short cx = Read16Long(es, bx);
+    unsigned short tmp_cx = Read16Long(es, bx);
     unsigned short temp = Read16Long(es, ax);
-    Write16Long(es, ax, cx);
+    Write16Long(es, ax, tmp_cx);
     Write16Long(es, bx, temp);
 // 0x2f36: push   cx
 // 0x2f38: mov    cx,es:[bx]
@@ -610,9 +612,9 @@ void LXCHG16(unsigned short es, unsigned short bx, unsigned short ax) //  "{LXCH
 
 void LXCHG8(unsigned short es, unsigned short bx, unsigned short ax)
 {
-    unsigned short cx = Read8Long(es, bx);
+    unsigned short tmp_cx = Read8Long(es, bx);
     unsigned short temp = Read8Long(es, ax);
-    Write8Long(es, ax, cx&0xFF);
+    Write8Long(es, ax, tmp_cx&0xFF);
     Write8Long(es, bx, temp&0xFF);
 // 0x49cc: mov    cl,es:[bx]
 // 0x49ce: xchg   ax,bx
@@ -692,8 +694,8 @@ void Find() // "(FIND)"
 {
     //Find word in the vocabulary
     unsigned short bx = Pop(); // first entry in vocabulary
-    unsigned short cx = Pop(); // length and string of entry
-    int n = Read8(cx);
+    unsigned short find_cx = Pop(); // length and string of entry
+    int n = Read8(find_cx);
 /*
     SF_Log("Find: '");
     for(int i=0; i<n; i++)
@@ -712,7 +714,7 @@ void Find() // "(FIND)"
         Push(1);
         return;
     }
-    int word = FindWordByName((char*)&mem[cx+1], n);
+    int word = FindWordByName((char*)&mem[find_cx+1], n);
     //SF_Log("Found 0x%04x\n", word);
     if (word == 0x0)
     {
@@ -1268,8 +1270,8 @@ uint16_t Peek16(uint16_t stackOffset) {
     return Read16(address);
 }
 
-// Define global variable for emulation control
-std::atomic<bool> stopEmulationThread{false};
+// Define global variable for emulation control (shared elsewhere)
+extern std::atomic<bool> stopEmulationThread;
 uint16_t nparmsStackSi = 0;
 
 static uint64_t s_missileNonce = 0x1000000;
@@ -1293,10 +1295,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
     if (stopEmulationThread)
         return STOP;
 
-    // CPU registers (local to this function, not globals!)
-    unsigned short ds = StarflightBaseSegment;
-    unsigned short cx = 0x0;
-    unsigned short dx = 0x0;
+    // CPU registers are globals (match original emulator semantics)
     
     unsigned short i;
     enum RETURNCODE ret = OK;
@@ -3314,7 +3313,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x8A2D: // calculate memory offset for given coordinates. Interleaved. Maybe CGA?
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -3379,39 +3378,39 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x175F: // read constant "LIT"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x1618: // read constant "2LIT"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0xC3A: // 2@
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0xC24: // 2!_2
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x30a8: // "ADVANCE>DEF"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x4D5C:  // Get segment:offset in array
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x4DA4: // "!OFFSET" sets 2D array pointers for faster access, like in C
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -3623,39 +3622,39 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0xF62: // "/MOD"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);        
+            Run8086(cs, addr, ds, cs, &regsp);        
         }
         break;
 
         case 0x1261: // "="
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x127a: // "0<"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0x71DD: // "DOFFBLK" gets the idx from the dictionary in STARX.com
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x3672:
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
             break;
 
         case 0x4a15: // Helper for "CASE"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x3048: // "(BUFFER)"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -3720,14 +3719,14 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             break;
 
         case 0x36BB: // ???
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
             break;
 
 // ---------------------------------------------
 
         case 0x1248: // "<"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -3969,7 +3968,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x9390: // "?EXTENTX"
            {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
            }
         break;
         case 0x902b: // "{BLT}" plot a bit pattern given parameters
@@ -4073,7 +4072,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 // 0x9ac7: lodsw
 // 0x9ac8: mov    bx,ax
 // 0x9aca: jmp    word ptr [bx]
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x9a9e: // !IW
@@ -4093,12 +4092,12 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 // 0x9aad: lodsw
 // 0x9aae: mov    bx,ax
 // 0x9ab0: jmp    word ptr [bx]
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x9d18: // ?ILOCUS
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
 #if 0
             uint16_t locusCount = Read16(regsp);
 
@@ -4153,37 +4152,37 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         break;
         case 0x9e14: // XCHGICON
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x9eb1: // ?IID
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x9a6c: // @IW
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x9a82: // @IH
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x4910: // 2^N
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x9970: // WLD>SCR
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x99b4: // SCR>BLT
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x9055: // LFILLPOLY 
@@ -4280,7 +4279,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x6C86: // "C>EGA" 
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -5333,7 +5332,11 @@ void LoadSTARFLT(std::filesystem::path path)
         SF_Log( "Error: Cannot find file %s\n", star0Path.c_str());
         exit(1);
     }
-    ret = fread(&mem[0x100], FILESTAR0SIZE, 1, fp);
+
+    unsigned char* target = &mem[0x100];
+    uint64_t delta = target - mem;
+
+    ret = fread(target, FILESTAR0SIZE, 1, fp);
     fclose(fp);
 
     SF_Log( "LoadSTARFLT: Trying to load %s\n", staraPath.c_str());
