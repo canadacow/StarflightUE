@@ -47,6 +47,10 @@ public class StarflightRuntime : ModuleRules
             "SlateCore",
             "AudioMixer"
         });
+
+        // Disable unity build for emulator files to avoid symbol conflicts
+        // These files have static functions (SF_Log) and global state that conflict in unity builds
+        bUseUnity = false;
     }
 }
 
