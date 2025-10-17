@@ -6,6 +6,8 @@
 #pragma warning(disable: 4101) // unreferenced local variable
 #pragma warning(disable: 4457) // declaration hides function parameter
 #pragma warning(disable: 4883) // function size suppresses optimizations
+#pragma warning(disable: 4459) // Aliasing global declarations
+#pragma warning(disable: 4456) // Aliasing local declarations
 
 #include "call.h"
 #include "call_stubs.h"
@@ -77,8 +79,7 @@ FrameSync frameSync;
 unsigned int debuglevel = 0;
 
 const unsigned short cs = StarflightBaseSegment;
-unsigned short ds = StarflightBaseSegment;
-const unsigned short call_cs = cs;
+const unsigned short ds = StarflightBaseSegment;
 
 unsigned short int regdi = REGDI; // points to word "OPERATOR"
 unsigned short int cx = 0x0;
@@ -345,10 +346,7 @@ void HandleInterrupt()
 {
     static int disktransferaddress_segment = -1;
     static int disktransferaddress_offset = -1;
-
-    // CPU registers (match original emulator semantics)
-    // use global ds
-    
+   
     #pragma pack(push, 1)
     struct FCB {
         uint8_t driveNumber; // 0 = default, 1 = A:, 2 = B:, etc.
@@ -373,7 +371,7 @@ void HandleInterrupt()
     int bx = Read16(0x16b8);
     cx = Read16(0x16ba);
     dx = Read16(0x16bc);
-    ds = Read16(0x16c4);
+    int ds = Read16(0x16c4);
     int es = Read16(0x16c6);
     int tempdi = Read16(0x16c0);
     int tempsi = Read16(0x16c2);
@@ -602,9 +600,9 @@ RETURNCODE ParameterCall(unsigned short bx, unsigned short addr)
 
 void LXCHG16(unsigned short es, unsigned short bx, unsigned short ax) //  "{LXCHG}"
 {
-    unsigned short tmp_cx = Read16Long(es, bx);
+    unsigned short cx = Read16Long(es, bx);
     unsigned short temp = Read16Long(es, ax);
-    Write16Long(es, ax, tmp_cx);
+    Write16Long(es, ax, cx);
     Write16Long(es, bx, temp);
 // 0x2f36: push   cx
 // 0x2f38: mov    cx,es:[bx]
@@ -618,9 +616,9 @@ void LXCHG16(unsigned short es, unsigned short bx, unsigned short ax) //  "{LXCH
 
 void LXCHG8(unsigned short es, unsigned short bx, unsigned short ax)
 {
-    unsigned short tmp_cx = Read8Long(es, bx);
+    unsigned short cx = Read8Long(es, bx);
     unsigned short temp = Read8Long(es, ax);
-    Write8Long(es, ax, tmp_cx&0xFF);
+    Write8Long(es, ax, cx&0xFF);
     Write8Long(es, bx, temp&0xFF);
 // 0x49cc: mov    cl,es:[bx]
 // 0x49ce: xchg   ax,bx
@@ -700,8 +698,8 @@ void Find() // "(FIND)"
 {
     //Find word in the vocabulary
     unsigned short bx = Pop(); // first entry in vocabulary
-    unsigned short find_cx = Pop(); // length and string of entry
-    int n = Read8(find_cx);
+    unsigned short cx = Pop(); // length and string of entry
+    int n = Read8(cx);
 /*
     SF_Log("Find: '");
     for(int i=0; i<n; i++)
@@ -720,7 +718,7 @@ void Find() // "(FIND)"
         Push(1);
         return;
     }
-    int word = FindWordByName((char*)&mem[find_cx+1], n);
+    int word = FindWordByName((char*)&mem[cx+1], n);
     //SF_Log("Found 0x%04x\n", word);
     if (word == 0x0)
     {
@@ -1591,7 +1589,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 if(nextInstr == 0xef3b && (std::string(overlayName) == "COMBAT-OV")) // COMBAT
                 {
                     #if 1
-                    for(int j = 0; j < 3; ++j)
+                    for(int i = 0; i < 3; ++i)
                     {
                         GraphicsSetDeadReckoning(s_heading.x, s_heading.y, s_currentIconList, s_currentSolarSystem, s_orbitMask, s_currentStarMap, s_missiles, s_lasers, s_explosions);
                         std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -1611,14 +1609,14 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     int shipIndex = -1;
                     vec2<float> shipLocation;
 
-                    for (int j = 0; j < iconCount; ++j)
+                    for (int i = 0; i < iconCount; ++i)
                     {
-                        Icon icon = GetIcon(j);
+                        Icon icon = GetIcon(i);
                         combatLocale.push_back(icon);
 
                         if(icon.icon_type == IconType::Ship)
                         {
-                            shipIndex = j;
+                            shipIndex = i;
                             shipLocation = { icon.x, icon.y };
                         }
                     }
@@ -1649,11 +1647,11 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                     std::vector<Icon> starMapLocale{};
 
-                    for (uint16_t j = 0; j < iconCount; ++j)
+                    for (uint16_t i = 0; i < iconCount; ++i)
                     {
                         bool found = false;
 
-                        Icon icon = GetIcon(j);
+                        Icon icon = GetIcon(i);
                         starMapLocale.push_back(icon);
                     }
 
@@ -1883,18 +1881,18 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         uint32_t t = 0;
                         for (int j = 23; j >= 0; j--)
                         {
-                            for (int k = 0; k < 48; k++)
+                            for (int i = 0; i < 48; i++)
                             {
                                 int val = 0;
                                 if(p.second.species != 18)
                                 {
-                                    ps.native[t] = (int8_t)Read8Long(seg, j * 48 + k);
+                                    ps.native[t] = (int8_t)Read8Long(seg, j * 48 + i);
                                     val = (int32_t)(int8_t)ps.native[t];
                                 }
                                 else
                                 {
                                     auto jat = 23 - j;
-                                    val = mini_png[jat * 48 + k];
+                                    val = mini_png[jat * 48 + i];
                                     ps.native[t] = (int8_t)val;
                                 }
                                 
@@ -1938,7 +1936,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                                     int linePos = 0;
                                     linePos += snprintf(line + linePos, sizeof(line) - linePos, "%2d: ", j);
 
-                                    for (int k = 0; k < 48; k++)
+                                    for (int i = 0; i < 48; i++)
                                     {
                                         int val = 0;
                                         if(p.second.species != 18)
@@ -2000,7 +1998,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                             userMarkRange.reset();
 
                             auto end = std::chrono::high_resolution_clock::now();
-                            auto duration2 = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+                            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
                             float milliseconds = duration.count() / 1000.0f;
                             char buf[256];
                             snprintf(buf, sizeof(buf), "NEWCONTOUR took %.3f milliseconds\n", milliseconds);
@@ -2008,8 +2006,8 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                             {
                                 #if 1
-                                std::vector<unsigned char> png2;
-                                unsigned error2 = lodepng::encode(png2, planet_image, planet_contour_width * planet_usable_width, planet_contour_height * planet_usable_height, LCT_GREY, 8);
+                                std::vector<unsigned char> png;
+                                unsigned error = lodepng::encode(png, planet_image, planet_contour_width * planet_usable_width, planet_contour_height * planet_usable_height, LCT_GREY, 8);
                                 if (!error)
                                 {
                                     std::string filename = "planets/" + std::to_string(p.second.seed) + ".png";
@@ -2045,14 +2043,14 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 if (nextInstr == 0x7339) // FILE<
                 {
                     uint16_t fileNum = Read16(regsp);
-                    uint16_t local_ds = Read16(regsp + 2);
+                    uint16_t ds = Read16(regsp + 2);
 
                     //if (ds == 0x0ee1)
                     {
                         CurrentImageTagForHybridBlit = fileNum;
                     }
 
-                    SF_Log("Read file at %04x:%04x\n", local_ds, fileNum);
+                    SF_Log("Read file at %04x:%04x\n", ds, fileNum);
                 }
 
                 if(nextInstr == 0xe6dc || nextInstr == 0xec65) // WE6DC - Orbit screen copy routine of landing or grid
@@ -2203,11 +2201,11 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     }
 #endif
 
-                    for (uint16_t idx = 0; idx < localCount; ++idx)
+                    for (uint16_t i = 0; i < localCount; ++i)
                     {
                         bool found = false;
 
-                        Icon icon = GetIcon(idx);
+                        Icon icon = GetIcon(i);
 
                         Push(icon.x);
                         Push(icon.y);
@@ -2299,27 +2297,27 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         }
                         if (it->second == "ELEMENT")
                         {
-                            SF_Log("Element at index %d is at %d x %d of quantity %d of type %d\n", idx, icon.locationX, icon.locationY, icon.quantity, icon.elementType);
+                            SF_Log("Element at index %d is at %d x %d of quantity %d of type %d\n", i, icon.locationX, icon.locationY, icon.quantity, icon.elementType);
                             found = true;
                         }
                         if (it->second == "TVEHICLE")
                         {
-                            SF_Log("Terrain vehicle at index %d is at %d x %d\n", idx, icon.locationX, icon.locationY);
+                            SF_Log("Terrain vehicle at index %d is at %d x %d\n", i, icon.locationX, icon.locationY);
                             found = true;
                         }
                         if (it->second == "CREATURE")
                         {
-                            SF_Log("Creature at index %d is at %d x %d\n", idx, icon.locationX, icon.locationY);
+                            SF_Log("Creature at index %d is at %d x %d\n", i, icon.locationX, icon.locationY);
                             found = true;
                         }
                         if (it->second == "ARTIFACT")
                         {
-                            SF_Log("Artifact at index %d is at %d x %d\n", idx, icon.locationX, icon.locationY);
+                            SF_Log("Artifact at index %d is at %d x %d\n", i, icon.locationX, icon.locationY);
                             found = true;
                         }
                         if (it->second == "RUIN")
                         {
-                            SF_Log("Ruin at index %d is at %d x %d species %d\n", idx, icon.locationX, icon.locationY, icon.species);
+                            SF_Log("Ruin at index %d is at %d x %d species %d\n", i, icon.locationX, icon.locationY, icon.species);
                             found = true;
                         }
 
@@ -2332,24 +2330,24 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                             {
                                 auto inst = inIt->second;
 
-                                auto it2 = InstanceTypes.find(inst.classType);
+                                auto it = InstanceTypes.find(inst.classType);
                                 assert(it != InstanceTypes.end());
 
                                 if (it->first == 0xb)
                                 {
                                     // More things to unbox than just planets and stars?
-                                    SF_Log("Object at index %d is %s, iaddr 0x%x offset 0x%x\n", idx, it->second.data(), icon.iaddr, inst.off);
+                                    SF_Log("Object at index %d is %s, iaddr 0x%x offset 0x%x\n", i, it->second.data(), icon.iaddr, inst.off);
 
                                     assert(false);
                                 }
                             }
                             else
                             {
-                                SF_Log("Object at index %d has unknown iaddr 0x%x\n", idx, icon.iaddr);
+                                SF_Log("Object at index %d has unknown iaddr 0x%x\n", i, icon.iaddr);
                                 //assert(false);
                             }
 
-                            SF_Log("Locus %d of %d index %d inst type %s, X: %d (%d) (%d), Y: %d (%d) (%d), ID: %u, CLR: %u\n", idx, localCount, idx, it->second.c_str(), icon.x, icon.screenX, icon.bltX, icon.y, icon.screenY, icon.bltY, icon.id, icon.clr);
+                            SF_Log("Locus %d of %d index %d inst type %s, X: %d (%d) (%d), Y: %d (%d) (%d), ID: %u, CLR: %u\n", i, localCount, i, it->second.c_str(), icon.x, icon.screenX, icon.bltX, icon.y, icon.screenY, icon.bltY, icon.id, icon.clr);
                         }
 
                         s_currentIconList.push_back(icon);
@@ -2410,7 +2408,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 else if (nextInstr == 0xe60c)
                 {
                     // CSCR>EGA
-                    uint16_t local_ds2 = Read16(0x52b3);
+                    uint16_t ds = Read16(0x52b3);
                     uint16_t fileNum = Pop();
                     uint16_t di = 0;
 
@@ -2431,7 +2429,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     
                     rs.runBitData.tag = fileNum;
 
-                    GraphicsSplash(local_ds2, fileNum);
+                    GraphicsSplash(ds, fileNum);
 
                     for(int y = 0; y < 200; ++y)
                     {
@@ -2781,13 +2779,13 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                     // Get current missle locations
                     uint16_t missleCount = Read16(0xe1FB);
-                    for(uint16_t j = 0; j < missleCount; ++j)
+                    for(uint16_t i = 0; i < missleCount; ++i)
                     {
-                        if(mr[j].mclass != 0)
+                        if(mr[i].mclass != 0)
                         {
-                            assert(s_missileIds.find(j) != s_missileIds.end());
+                            assert(s_missileIds.find(i) != s_missileIds.end());
 
-                            MissileRecordUnique mru = { mr[j], s_missileIds.find(j)->second};
+                            MissileRecordUnique mru = { mr[i], s_missileIds.find(i)->second};
                             missiles.push_back(mru);
                         }
                     }
@@ -2840,11 +2838,11 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                     for (int j = 23; j >= 0; j--)
                     {
-                        for (int k = 0; k < 48; k++)
+                        for (int i = 0; i < 48; i++)
                         {
                             auto jat = 23 - j;
-                            auto val = mini_png[jat * 48 + k];
-                            Write8Long(seg, j * 48 + k, val);
+                            auto val = mini_png[jat * 48 + i];
+                            Write8Long(seg, j * 48 + i, val);
                         }
                     }                    
                 }
@@ -2875,7 +2873,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                         sun.id = 53; // 52 is the default size
                         sun.clr = 15;
-                        sun.icon_type = static_cast<uint32_t>(IconType::Sun);
+                        sun.icon_type = (uint32_t)IconType::Sun;
                         sun.iaddr = iaddr;
 
                         auto systemIt = starsystem.find(iaddr);
@@ -2917,9 +2915,9 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                         ForthCall(0x7a86); // INEXT 
 
-                        for (int j = 0; j <= 7; ++j)
+                        for (int i = 0; i <= 7; ++i)
                         {
-                            if (!(s_orbitMask & (1 << j)))
+                            if (!(s_orbitMask & (1 << i)))
                                 continue;
 
                             for (;;)
@@ -2941,7 +2939,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                                 mi.id = 52; // 51 is the default size
                                 mi.clr = 0xf;
 
-                                mi.icon_type = static_cast<uint32_t>(IconType::Planet);
+                                mi.icon_type = (uint32_t)IconType::Planet;
 
                                 auto planetIt = planets.find(instOff);
                                 if (planetIt != planets.end())
@@ -3069,9 +3067,9 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
               std::string outStr{};
 
-              for(int idx=0; idx<n; idx++)
+              for(int i=0; i<n; i++)
               {
-                outStr += Read8(offset+idx);
+                outStr += Read8(offset+i);
               }
 
               if(outStr == "RECEIVING:")
@@ -3350,7 +3348,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 if (GraphicsHasKey())
                 {
                     std::lock_guard<std::mutex> lg(frameSync.mutex);
-                    if (frameSync.gameTickTimer < std::chrono::milliseconds(2))
+                    if (frameSync.gameTickTimer.count() < 2)
                     {
                         Push(1);
                     }
@@ -3497,37 +3495,37 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x14BD: // "DIGIT"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x22AB: // ENCLOSE
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
             break;
         }
 
         case 0x1AC0: // ???
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x718d: // "RECADD"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
             break;
 
         case 0x7295: // "BVSA>OFFBLK". Input: offset in file divided by 16, Prepare for "RECADD"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
             break;
 
         case 0x7684: // "PRIORITIZE"
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
 // 0x7684: pop    ax
@@ -3558,7 +3556,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 // 0x76b4: jmp    word ptr [bx]
 
         case 0x143A: // ">UPPERCASE"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
             break;
 
         case 0x2852: // "CUR>ADDR"
@@ -3574,17 +3572,17 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
           // 0x2721: sub    bh,bh
           // 0x2723: add    ax,bx
           // 0x2725: ret
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x2836: // ?POSITION
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0x0D35: // "FILL"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -3618,13 +3616,13 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x11ED: // "U/MOD"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0xF4E: // "/"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -3668,7 +3666,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
             case 0x2F51: // "LWSCAN"
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
 
@@ -3740,12 +3738,12 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x122F: // ">"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x12a1: // "0>"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 // 0x12a1: pop    ax
 // 0x12a2: neg    ax
@@ -3758,13 +3756,13 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x12E1: // "U<"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x11D8: // "U*"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -3818,13 +3816,13 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x6D12: // "?UPDATE" converts addr to addr
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x4c87: // (SLIPPER)
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 // ---------------------------------------------
@@ -3881,7 +3879,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         // --- graphics ---
         case 0x97cc: // COLORMAP. Determine color from given value. For example from landscape height
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 // 0x97cc: pop    bx
@@ -3971,7 +3969,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             }
         break;
         case 0x93B1: // "BEXTENT" Part of Bit Block Image Transfer (BLT)
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0x9390: // "?EXTENTX"
@@ -4028,7 +4026,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x8891: // SCANPOLY
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
         break;
         case 0x90ad: // V>DISPLAY
@@ -4364,7 +4362,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             {
                 SF_Log("set video mode monitor=%i ?ega=%i\n", Read16(0x584A), Read16(0x5DA3));
 
-                uint16_t ax, local_cx, local_dx, di, si;
+                uint16_t ax, cx, dx, di, si;
                 uint8_t& al = reinterpret_cast<uint8_t*>(&ax)[0];
                 uint8_t& ah = reinterpret_cast<uint8_t*>(&ax)[1];
                 uint8_t& bl = reinterpret_cast<uint8_t*>(&bx)[0];
@@ -4459,17 +4457,17 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         // move u from parm stack to the vector stack. Used as the Overlay call stack
         case 0x7AE7: // ">V"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         // move u from vector stack to parm stack
         case 0x7AFE: // "V>"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         // move u from vector stack to parm stack
         case 0x7B15: // "VI"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0x29FC: // "V!"
@@ -4529,14 +4527,14 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
             Rotoscope rc{};
             rc.content = RunBitPixel;
-            // rc.runBitData.tag = CurrentImageTagForHybridBlit;
+            rc.runBitData.tag = CurrentImageTagForHybridBlit;
             rc.blt_w = WBLT;
 
             int xofs = 0;
             int verticalLines = 0;
-            for(int k=0; k<temp2; k++)
+            for(int i=0; i<temp2; i++)
             {
-                int al = Read8Long(segment, offset + 2 + k);
+                int al = Read8Long(segment, offset + 2 + i);
                 if (al == 0) continue;
                 for(int j=0; j<al; j++)
                 {
@@ -4570,9 +4568,9 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             //SF_Log("color=%i xblt=%i yblt=%i wblt=%i 0x%04x:0x%04x 0x%04x temp2=%i\n", color, XBLT, YBLT, WBLT, segment, offset, regsp, temp2);
             xofs = 0;
             int yofs = 0;
-            for(int k=0; k<temp2; k++)
+            for(int i=0; i<temp2; i++)
             {
-                int al = Read8Long(segment, offset + 2 + k);
+                int al = Read8Long(segment, offset + 2 + i);
                 if (al == 0) continue;
                 for(int j=0; j<al; j++)
                 {
@@ -4581,7 +4579,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                     Rotoscope inRs{};
                     GraphicsPeek(XBLT + xofs, YBLT - yofs, bufseg, &inRs);
-                    if ((k&1) == 0)
+                    if ((i&1) == 0)
                     {
                         rc.bgColor = inRs.EGAcolor;
                         rc.fgColor = color;
@@ -4623,18 +4621,18 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             }
 
             // Store the ARGB image in pixImage into a png file
-            // std::string filename = "pix/pix_" + std::to_string(rc.runBitData.tag) + ".png";
-            // unsigned error = lodepng::encode(filename, (const unsigned char*)it->second.data(), WBLT, verticalLines, LCT_RGBA);
-            // if(error) SF_Log("encoder error %u: %s\n", error, lodepng_error_text(error));
+            std::string filename = "pix/pix_" + std::to_string(rc.runBitData.tag) + ".png";
+            unsigned error = lodepng::encode(filename, (const unsigned char*)it->second.data(), WBLT, verticalLines, LCT_RGBA);
+            if(error) SF_Log("encoder error %u: %s\n", error, lodepng_error_text(error));
         }
         break;
 
         case 0xec7d: // "|EGA" in PORTMENU-OV
         {
-            uint16_t local_cx2 = Pop();
+            uint16_t cx = Pop();
 
             uint16_t ax = Read16(0x55E6); // DBUF-SEG
-            uint16_t local_dx2 = Read16(0x55D8); // HBUF-SEG
+            uint16_t dx = Read16(0x55D8); // HBUF-SEG
             bx = Read16(0xEBFC); // WEBFC
 
             bx += 3;
@@ -4657,13 +4655,13 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             int y = 199 - (si / 40);
 
             assert(x == 0);
-            for(int j = 0; j < 18; ++j)
+            for(int i = 0; i < 18; ++i)
             {
-                for (int k = 0; k < 160; ++k)
+                for (int j = 0; j < 160; ++j)
                 {
                     Rotoscope rs{};
-                    auto c = GraphicsPeek(x + j, y - k, srcSeg, &rs);
-                    GraphicsPixel(x + j, y - k, c, destSeg, rs);
+                    auto c = GraphicsPeek(x + j, y - i, srcSeg, &rs);
+                    GraphicsPixel(x + j, y - i, c, destSeg, rs);
                 }
             }
         }
@@ -4671,57 +4669,57 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         // ---- 3 byte stack ---
         case 0x753F: // ">C"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0x755A: // "C>"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0x7577: // "CI"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0x75d7: // "CDEPTH"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
 // -------------------------------
 
         case 0x4997: // "1.5@"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0x49ae: // "1.5!_2"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
 // -------------------------------
 
         case 0x763a: // "@[IOFF]"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
         case 0x7425: // "IFLDADR"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 
 // ---------------------------------------------
 
         case 0x0D10: // "CMOVE"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x2EFE: // "LCMOVE"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x0D9C: //"ADDR>SEG"
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         break;
 // --------------------------
 
@@ -4742,19 +4740,19 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x1593: // "(/LOOP)"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x155E: // "(+LOOP)"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x15D2: // "(LOOP)"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -4762,33 +4760,33 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x1508:  // "S->D"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x1067: // "D+"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x10B9: // "DNEGATE"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x495E: // "D16*"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x4af3: // +BIT
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x4b08: // D2*
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -4796,7 +4794,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x6f49: // "VA>BLK"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
             break;
         }
 
@@ -4806,71 +4804,71 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         // -----------------------------------
 
-        case 0x0F22: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // 0
-        case 0x0F30: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // 1
-        case 0x0F3F: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // 2
-        case 0x1340: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // OR
-        case 0x12F7: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // AND
-        case 0x1366: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // XOR
-        case 0x0F74: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "+"
-        case 0x4bc5: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "+-@" sign extend
-        case 0x0F94: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "-"
-        case 0x0FB5: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // *
-        case 0x11C8: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // NEGATE
-        case 0x1309: Run8086(call_cs, addr, ds, call_cs, &regsp); break;// "NOT"
-        case 0x128B: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "0="
-        case 0x1007: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // 2*
-        case 0x4984: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "3+"
-        case 0x0FE9: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "1+"
-        case 0x0FF8: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "1-"
-        case 0x1017: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "2+"
-        case 0x1027: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "2-"
-        case 0x4935: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // 16/
-        case 0x1037: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "2/"
-        case 0x4949: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "16*"
+        case 0x0F22: Run8086(cs, addr, ds, cs, &regsp); break; // 0
+        case 0x0F30: Run8086(cs, addr, ds, cs, &regsp); break; // 1
+        case 0x0F3F: Run8086(cs, addr, ds, cs, &regsp); break; // 2
+        case 0x1340: Run8086(cs, addr, ds, cs, &regsp); break; // OR
+        case 0x12F7: Run8086(cs, addr, ds, cs, &regsp); break; // AND
+        case 0x1366: Run8086(cs, addr, ds, cs, &regsp); break; // XOR
+        case 0x0F74: Run8086(cs, addr, ds, cs, &regsp); break; // "+"
+        case 0x4bc5: Run8086(cs, addr, ds, cs, &regsp); break; // "+-@" sign extend
+        case 0x0F94: Run8086(cs, addr, ds, cs, &regsp); break; // "-"
+        case 0x0FB5: Run8086(cs, addr, ds, cs, &regsp); break; // *
+        case 0x11C8: Run8086(cs, addr, ds, cs, &regsp); break; // NEGATE
+        case 0x1309: Run8086(cs, addr, ds, cs, &regsp); break;// "NOT"
+        case 0x128B: Run8086(cs, addr, ds, cs, &regsp); break; // "0="
+        case 0x1007: Run8086(cs, addr, ds, cs, &regsp); break; // 2*
+        case 0x4984: Run8086(cs, addr, ds, cs, &regsp); break; // "3+"
+        case 0x0FE9: Run8086(cs, addr, ds, cs, &regsp); break; // "1+"
+        case 0x0FF8: Run8086(cs, addr, ds, cs, &regsp); break; // "1-"
+        case 0x1017: Run8086(cs, addr, ds, cs, &regsp); break; // "2+"
+        case 0x1027: Run8086(cs, addr, ds, cs, &regsp); break; // "2-"
+        case 0x4935: Run8086(cs, addr, ds, cs, &regsp); break; // 16/
+        case 0x1037: Run8086(cs, addr, ds, cs, &regsp); break; // "2/"
+        case 0x4949: Run8086(cs, addr, ds, cs, &regsp); break; // "16*"
         case 0x1355:  // "TOGGLE"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         // ----- memory operations -----
 
-        case 0x0BB0: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "@"
-        case 0x0C94: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "C@"
-        case 0x0BE1: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "!", "<!>"
-        case 0x0C60: Run8086(call_cs, addr, ds, call_cs, &regsp); break; // "C!"
+        case 0x0BB0: Run8086(cs, addr, ds, cs, &regsp); break; // "@"
+        case 0x0C94: Run8086(cs, addr, ds, cs, &regsp); break; // "C@"
+        case 0x0BE1: Run8086(cs, addr, ds, cs, &regsp); break; // "!", "<!>"
+        case 0x0C60: Run8086(cs, addr, ds, cs, &regsp); break; // "C!"
 
         case 0x2EB8: // "L!"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x2EA4: // "L@"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x2EE5: // "LC!"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x2eCD: // "LC@"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x49f0: // 'L+-@'
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         case 0x0F85:  // "+!"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -4883,41 +4881,41 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         case 0x0DCA: if (Read16(regsp) != 0) Push(Read16(regsp)); break; //"?DUP"
         case 0x0EF4: // "SWAP"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x0E08: // "2SWAP"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x0EB5: // "ROT"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
         // ------------------------------
 
         case 0x1792: Push(Read16(bx+2) + regdi); /*SF_Log("Read 0x%04x\n", Read16(bx+2)); */break; // di is always the same value. Points to WORD "OPERATOR"
-        case 0x0c17: Push(call_cs); break; // "(CS?)"
+        case 0x0c17: Push(cs); break; // "(CS?)"
         case 0x0F14: Push(regsp); break; // "SP@"
         case 0x49c2: Push(ds); break; // "@DS"
         case 0x0ad1: Push(regdi); break; // "ME"
         case 0x0f05: regsp = Read16(regdi);break; // "SP!"
         case 0x4873: Write16(Pop(), 1); break; // ON
         case 0x4886: Write16(Pop(), 0); break; // "OFF"
-        case 0x0D7C: Push((Pop()-call_cs)<<4); break; // "SEG>ADDR"
+        case 0x0D7C: Push((Pop()-cs)<<4); break; // "SEG>ADDR"
         case 0x4abb: // FRND
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
         case 0x4892: break; // "CAPSON" Turn on caps
 
         case 0x6cd6: // E>CGA
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -4932,7 +4930,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
         case 0x4b17: // EASY-BITS for SQRT
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -4944,7 +4942,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             uint16_t si = Read16(0x078C); // mov si, [078C]
             si -= 0x03E8; // sub si, 03E8
             uint16_t di = bx; // mov di, bx
-            uint16_t local_cx3 = 0x03E8; // mov cx, 03E8
+            uint16_t cx = 0x03E8; // mov cx, 03E8
             while (cx--) // repz
             {
                 Write8(di++, Read8(si++)); // movsb
@@ -4959,7 +4957,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             uint16_t si = bx; // mov si, bx
             uint16_t di = Read16(0x078C); // mov di, [078C]
             di -= 0x03E8; // sub di, 03E8
-            uint16_t local_cx3 = 0x03E8; // mov cx, 03E8
+            uint16_t cx = 0x03E8; // mov cx, 03E8
             while (cx--) // repz
             {
                 Write8(di++, Read8(si++)); // movsb
@@ -4975,7 +4973,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             uint16_t si = Read16(0x078E); // mov si, [078E]
             si -= 0x00DC; // sub si, 00DC
             uint16_t di = bx; // mov di, bx
-            uint16_t local_cx4 = 0x00DC; // mov cx, 00DC
+            uint16_t cx = 0x00DC; // mov cx, 00DC
             while (cx--) // repz
             {
                 Write8(di++, Read8(si++)); // movsb
@@ -4990,7 +4988,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             uint16_t si = bx; // mov si, bx
             uint16_t di = Read16(0x078E); // mov di, [078E]
             di -= 0x00DC; // sub di, 00DC
-            uint16_t local_cx4 = 0x00DC; // mov cx, 00DC
+            uint16_t cx = 0x00DC; // mov cx, 00DC
             while (cx--) // repz
             {
                 Write8(di++, Read8(si++)); // movsb
@@ -5008,7 +5006,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         break;
         case 0x992d: // "?INVIS"
         {
-            Run8086(call_cs, addr, ds, call_cs, &regsp);
+            Run8086(cs, addr, ds, cs, &regsp);
         }
         break;
 
@@ -5025,32 +5023,32 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             break;
         case 0xeadc: // WEADC
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0xeaea: // WEAEA
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);            
+                Run8086(cs, addr, ds, cs, &regsp);            
             }
             break;
         case 0xeaf8: // WEAF8
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);            
+                Run8086(cs, addr, ds, cs, &regsp);            
             }
             break; // +TMP
         case 0xed34:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0xed44: // -TMP
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0xed50: // @TMP
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
 // ================================================
@@ -5067,7 +5065,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 // 0xed71: jmp    word ptr [bx]
         case 0xed62:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
 // 0xee65: mov    cx,es
@@ -5092,7 +5090,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 // 0xee8d: mov    es,cx       
         case 0xee65: // PUSH-POLY
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
 // 0xeee5: xor    ax,ax
@@ -5104,7 +5102,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 // 0xeef2: push   ax
         case 0xeee5:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }  
             break;
 // 0xee98: mov    dx,[52A2] // POLYSEG
@@ -5123,7 +5121,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 // 0xeeb5: mov    [ED7D],bx // FADDR
         case 0xee96:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }   
             break;   
 // 0xeecc: xor    ax,ax
@@ -5137,55 +5135,55 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 // 0xeedd: push   ax
         case 0xeecc:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;       
 // 0xeec2: add    sp,06
         case 0xeec2:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0xdf13:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }   
             break;
         case 0xe1b6:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0xe228:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
 // 0xdf02: mov    [DC20],sp // WDC20            
         case 0xdf02:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0xdd2c:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
          
         case 0xe48c:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0xe4aa:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0x9841: // BUFFERXY
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0x9097: // SQLPLOT - square plot, used for the fracal maps
@@ -5203,8 +5201,8 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         case 0xf0c1: // |EGA
             {
                 uint16_t ax;
-                uint16_t local_cx5;
-                uint16_t local_ds3;
+                uint16_t cx;
+                uint16_t ds;
                 uint16_t es;
                 uint16_t si;
                 uint16_t di;
@@ -5230,12 +5228,12 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             break;
         case 0xe16b:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;            
         case 0x1047:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0x9081:
@@ -5268,22 +5266,22 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             break;
         case 0xefd9: // CBLTP -- MAPS-OV
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0xe8f3:// CBLTP -- MOVE-OV
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0x48dc:
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         case 0x8783: // CLIPPER
             {
-                Run8086(call_cs, addr, ds, call_cs, &regsp);
+                Run8086(cs, addr, ds, cs, &regsp);
             }
             break;
         default:
