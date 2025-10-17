@@ -34,6 +34,12 @@ static void SF_Log(const char* Format, ...)
 	va_start(Args, Format);
 	vsnprintf(Buffer, sizeof(Buffer), Format, Args);
 	va_end(Args);
+
+	// Remove trailing newline if present
+	size_t len = strlen(Buffer);
+	if (len > 0 && Buffer[len-1] == '\n')
+		Buffer[len-1] = '\0';
+
 	UE_LOG(LogStarflightEmulator, Log, TEXT("%s"), ANSI_TO_TCHAR(Buffer));
 }
 // #include "../disasOV/global.h"  // Not needed for UE build
@@ -1449,6 +1455,8 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
     {
         frameSync.gameContext = Read16(0x5a5c);
     }
+
+    SF_Log("addr: 0x%04x, bx: 0x%04x\n", addr, bx);
 
     // bx contains pointer to WORD
     if ((regsp < FILESTAR0SIZE+0x100) || (regsp > (0xF6F4)))
