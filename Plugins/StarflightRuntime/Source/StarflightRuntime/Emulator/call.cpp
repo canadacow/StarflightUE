@@ -1454,8 +1454,6 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         frameSync.gameContext = Read16(0x5a5c);
     }
 
-    SF_Log("addr: 0x%04x, bx: 0x%04x\n", addr, bx);
-
     // bx contains pointer to WORD
     if ((regsp < FILESTAR0SIZE+0x100) || (regsp > (0xF6F4)))
     {
