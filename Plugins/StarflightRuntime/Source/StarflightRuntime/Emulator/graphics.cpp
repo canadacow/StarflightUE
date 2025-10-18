@@ -242,21 +242,9 @@ void GraphicsBLT(int16_t x1, int16_t y1, int16_t w, int16_t h, const char* image
 
 void GraphicsText(char *s, int n)
 {
-    uint32_t textMemBase = ComputeAddress(TEXT_SEGMENT, 0);
-    
-    for (int i = 0; i < n; ++i) {
-        if (s[i] == '\n') {
-            GraphicsCarriageReturn();
-        } else {
-            uint32_t offset = textMemBase + (s_cursorY * TEXT_WIDTH + s_cursorX) * 2;
-            m[offset] = s[i];
-            m[offset + 1] = 0x07; // White on black
-            
-            s_cursorX++;
-            if (s_cursorX >= TEXT_WIDTH) {
-                GraphicsCarriageReturn();
-            }
-        }
+    for(int i=0; i<n; i++)
+    {
+        GraphicsChar(s[i]);
     }
 }
 

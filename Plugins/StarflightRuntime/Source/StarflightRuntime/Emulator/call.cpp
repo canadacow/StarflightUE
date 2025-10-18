@@ -8,6 +8,7 @@
 #pragma warning(disable: 4883) // function size suppresses optimizations
 #pragma warning(disable: 4459) // Aliasing global declarations
 #pragma warning(disable: 4456) // Aliasing local declarations
+#pragma warning(disable: 4996) // CRT security warnings (fopen, sscanf, etc.)
 
 #include "call.h"
 #include "call_stubs.h"
@@ -22,9 +23,10 @@
 #include "callstack.h"
 #include "findword.h"
 
-// Unreal Engine logging
+// Unreal Engine logging and assets
 #include <stdarg.h>
 #include "Logging/LogMacros.h"
+#include "StarflightAssets.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightEmulator, Log, All);
 
@@ -1579,9 +1581,10 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
                 if(nextInstr == 0xef5a && (std::string(overlayName) == "GAME-OV")) // SET.DISPLAY.MODE
                 {
+                    // To re-enable automatic selection of graphics uncomment this.
                     Write16(0x0a36, 0); // Turn off sound, i.e. set pp_IsSOUND to 0
-                    GraphicsPushKey(0x35); // ASCII code for "5"
-                    GraphicsPushKey(0x0D); // ASCII code for the return character key
+                    //GraphicsPushKey(0x35); // ASCII code for "5"
+                    //GraphicsPushKey(0x0D); // ASCII code for the return character key
                 }
 
                 if(nextInstr == 0xef3b && (std::string(overlayName) == "COMBAT-OV")) // COMBAT
@@ -1777,9 +1780,18 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 if (nextInstr == 0xb5aa) // HIMUS
                 {
                     std::vector<unsigned char> png;
-                    unsigned width, height;
-                    unsigned error = lodepng::decode(png, width, height, "lofi_earth.png", LCT_GREY, 8);
-                    if (!error)
+                    int32 width, height;
+                    TArray<uint8> LofiData = FStarflightAssets::Get().GetLofiEarthData(width, height);
+                    if (LofiData.Num() > 0)
+                    {
+                        png.assign(LofiData.GetData(), LofiData.GetData() + LofiData.Num());
+                    }
+                    else
+                    {
+                        UE_LOG(LogStarflightEmulator, Error, TEXT("Failed to load lofi_earth asset"));
+                        checkf(false, TEXT("Critical asset missing: lofi_earth texture asset"));
+                    }
+                    if (LofiData.Num() > 0)
                     {
                         if (width == planet_contour_width * planet_usable_width && height == planet_contour_height * planet_usable_height)
                         {
@@ -1821,24 +1833,20 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                             }
 
                             std::vector<unsigned char> albedo_png;
-                            error = lodepng::encode(albedo_png, (uint8_t*)planet_albedo.data(), planet_contour_width * planet_usable_width, planet_contour_height * planet_usable_height, LCT_RGBA, 8);
-                            if (!error)
+                            unsigned encode_error = lodepng::encode(albedo_png, (uint8_t*)planet_albedo.data(), planet_contour_width * planet_usable_width, planet_contour_height * planet_usable_height, LCT_RGBA, 8);
+                            if (!encode_error)
                             {
                                 lodepng::save_file(albedo_png, "albedo_output.png");
                             }
                             else
                             {
-                                SF_Log( "Error encoding albedo PNG: %u: %s\n", error, lodepng_error_text(error));
+                                SF_Log( "Error encoding albedo PNG: %u: %s\n", encode_error, lodepng_error_text(encode_error));
                             }
                         }
                         else
                         {
                             SF_Log( "Error: Image dimensions do not match expected size.\n");
                         }
-                    }
-                    else
-                    {
-                        SF_Log( "Error decoding PNG: %u: %s\n", error, lodepng_error_text(error));
                     }
 
 
@@ -1869,10 +1877,16 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                         std::vector<unsigned char> mini_png;
                         if (p.second.species == 18)
                         {
-                            unsigned mini_width, mini_height;
-                            unsigned mini_error = lodepng::decode(mini_png, mini_width, mini_height, "mini_earth.png", LCT_GREY, 8);
-                            if (mini_error) {
-                                SF_Log( "Error decoding mini PNG: %u: %s\n", mini_error, lodepng_error_text(mini_error));
+                            int32 mini_width, mini_height;
+                            TArray<uint8> MiniData = FStarflightAssets::Get().GetMiniEarthData(mini_width, mini_height);
+                            if (MiniData.Num() > 0)
+                            {
+                                mini_png.assign(MiniData.GetData(), MiniData.GetData() + MiniData.Num());
+                            }
+                            else
+                            {
+                                UE_LOG(LogStarflightEmulator, Error, TEXT("Failed to load mini_earth asset"));
+                                checkf(false, TEXT("Critical asset missing: mini_earth texture asset"));
                             }
                         }
 
@@ -2828,10 +2842,16 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     uint16_t seg = 0x7e51;
 
                     std::vector<unsigned char> mini_png;
-                    unsigned mini_width, mini_height;
-                    unsigned mini_error = lodepng::decode(mini_png, mini_width, mini_height, "mini_earth.png", LCT_GREY, 8);
-                    if (mini_error) {
-                        SF_Log( "Error decoding mini PNG: %u: %s\n", mini_error, lodepng_error_text(mini_error));
+                    int32 mini_width, mini_height;
+                    TArray<uint8> MiniData = FStarflightAssets::Get().GetMiniEarthData(mini_width, mini_height);
+                    if (MiniData.Num() > 0)
+                    {
+                        mini_png.assign(MiniData.GetData(), MiniData.GetData() + MiniData.Num());
+                    }
+                    else
+                    {
+                        UE_LOG(LogStarflightEmulator, Error, TEXT("Failed to load mini_earth asset"));
+                        checkf(false, TEXT("Critical asset missing: mini_earth texture asset"));
                     }
 
                     for (int j = 23; j >= 0; j--)

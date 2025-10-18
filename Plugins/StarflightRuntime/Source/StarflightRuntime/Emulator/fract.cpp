@@ -2,6 +2,7 @@
 #pragma warning(disable: 4456) // declaration hides previous local declaration
 #pragma warning(disable: 4459) // declaration hides global declaration
 #pragma warning(disable: 4101) // unreferenced local variable
+#pragma warning(disable: 4996) // CRT security warnings
 
 #include "fract.h"
 #include <stdio.h>
@@ -9,9 +10,10 @@
 #include <assert.h>
 #include <algorithm>
 
-// Unreal Engine logging
+// Unreal Engine logging and assets
 #include <stdarg.h>
 #include "Logging/LogMacros.h"
+#include "StarflightAssets.h"
 
 #include "util/lodepng.h"
 
@@ -1454,10 +1456,16 @@ PlanetSurface FractalGenerator::GetPlanetSurface(uint16_t planetInstanceIndex)
     std::vector<unsigned char> mini_png;
     if (planet.species == 18)
     {
-        unsigned mini_width, mini_height;
-        unsigned mini_error = lodepng::decode(mini_png, mini_width, mini_height, "mini_earth.png", LCT_GREY, 8);
-        if (mini_error) {
-            SF_Log("Error decoding mini PNG: %u: %s\n", mini_error, lodepng_error_text(mini_error));
+        int32 mini_width, mini_height;
+        TArray<uint8> MiniData = FStarflightAssets::Get().GetMiniEarthData(mini_width, mini_height);
+        if (MiniData.Num() > 0)
+        {
+            mini_png.assign(MiniData.GetData(), MiniData.GetData() + MiniData.Num());
+        }
+        else
+        {
+            UE_LOG(LogStarflightFract, Error, TEXT("Failed to load mini_earth asset"));
+            checkf(false, TEXT("Critical asset missing: mini_earth texture asset"));
         }
     }
 
@@ -1482,10 +1490,16 @@ FullResPlanetData FractalGenerator::GetFullResPlanetData(uint16_t planetInstance
 {
     if (planetInstanceIndex == 0x10ad) {
         std::vector<unsigned char> image;
-        unsigned MapWidth, MapHeight;
-        unsigned error = lodepng::decode(image, MapWidth, MapHeight, "lofi_earth.png", LCT_GREY, 8);
-        if (error) {
-            SF_Log("decoder error %u: %s\n", error, lodepng_error_text(error));
+        int32 MapWidth, MapHeight;
+        TArray<uint8> LofiData = FStarflightAssets::Get().GetLofiEarthData(MapWidth, MapHeight);
+        if (LofiData.Num() > 0)
+        {
+            image.assign(LofiData.GetData(), LofiData.GetData() + LofiData.Num());
+        }
+        else
+        {
+            UE_LOG(LogStarflightFract, Error, TEXT("Failed to load lofi_earth asset"));
+            checkf(false, TEXT("Critical asset missing: lofi_earth texture asset"));
             return FullResPlanetData{};
         }
 

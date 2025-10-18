@@ -1,15 +1,7 @@
 #ifndef FINDWORD_H
 #define FINDWORD_H
 
-// Stub for WORD structure - will need proper implementation with game data
-// Renamed to avoid conflict with Windows WORD typedef
-struct SF_WORD {
-    int address;
-    const char* name;
-    int code;
-    int word;
-    int ov;
-};
+#include "dictionary.h"
 
 int GetOverlayIndex(int address, const char** overlayName);
 int FindClosestWord(int si, int ovidx);
