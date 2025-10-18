@@ -1363,7 +1363,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
 
     if (graphicsIsShutdown)
     {
-        exit(0);
+        return STOP;
     }
 
     {
@@ -3172,8 +3172,8 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             ax += Read16(regdi+4);
             if ((Read16(0x0A0B) + Read16(regdi+4)) > 0xFFFF)
             {
-                SF_Log( "TODO: Error handling part 1. Empty or full stack\n");
-                exit(1);
+                UE_LOG(LogStarflightEmulator, Fatal, TEXT("TODO: Error handling part 1. Empty or full stack"));
+                return STOP; // Fatal will terminate
             }
             // if error:
             /*
@@ -5319,8 +5319,8 @@ void SaveSTARFLT()
     fp = fopen("starflt1-in/STARPAT.COM", "wb");
     if (fp == NULL)
     {
-        SF_Log( "Error: Cannot write file %s\n", FILESTAR0);
-        exit(1);
+        UE_LOG(LogStarflightEmulator, Fatal, TEXT("Cannot write file %s"), UTF8_TO_TCHAR(FILESTAR0));
+        return; // Fatal will terminate
     }
     ret = fwrite(&mem[0x100], FILESTAR0SIZE, 1, fp);
     fclose(fp);
@@ -5353,8 +5353,8 @@ void LoadSTARFLT(std::filesystem::path path)
     fp = fopen(star0Path.c_str(), "rb");
     if (fp == NULL)
     {
-        SF_Log( "Error: Cannot find file %s\n", star0Path.c_str());
-        exit(1);
+        UE_LOG(LogStarflightEmulator, Fatal, TEXT("Cannot find file %s"), UTF8_TO_TCHAR(star0Path.c_str()));
+        return; // Fatal will terminate
     }
 
     unsigned char* target = &mem[0x100];
@@ -5367,8 +5367,8 @@ void LoadSTARFLT(std::filesystem::path path)
     fp = fopen(staraPath.c_str(), "rb");
     if (fp == NULL)
     {
-        SF_Log( "Cannot open file %s\n", staraPath.c_str());
-        exit(1);
+        UE_LOG(LogStarflightEmulator, Fatal, TEXT("Cannot open file %s"), UTF8_TO_TCHAR(staraPath.c_str()));
+        return; // Fatal will terminate
     }
     ret = fread(STARA_ORIG, 256000, 1, fp);
     fclose(fp);
@@ -5376,8 +5376,8 @@ void LoadSTARFLT(std::filesystem::path path)
     fp = fopen(starbPath.c_str(), "rb");
     if (fp == NULL)
     {
-        SF_Log( "Cannot open file %s\n", starbPath.c_str());
-        exit(1);
+        UE_LOG(LogStarflightEmulator, Fatal, TEXT("Cannot open file %s"), UTF8_TO_TCHAR(starbPath.c_str()));
+        return; // Fatal will terminate
     }
     ret = fread(STARB_ORIG, 362496, 1, fp);
     fclose(fp);
@@ -5390,8 +5390,8 @@ void LoadSTARFLT(std::filesystem::path path)
     else
     {
         if (!Deserialize(path, serializedRotoscope, serializedSnapshot)) {
-            SF_Log( "Error: Cannot deserialize file %s\n", path.string().c_str());
-            exit(1);
+            UE_LOG(LogStarflightEmulator, Fatal, TEXT("Cannot deserialize file %s"), UTF8_TO_TCHAR(path.string().c_str()));
+            return; // Fatal will terminate
         }
     }
 }

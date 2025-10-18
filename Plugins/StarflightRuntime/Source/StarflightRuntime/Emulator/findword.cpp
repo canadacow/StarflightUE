@@ -18,6 +18,10 @@
 #include "directory.h"
 #include "overlays_data.h"
 
+// Unreal logging
+#include "Logging/LogMacros.h"
+DEFINE_LOG_CATEGORY_STATIC(LogStarflightFindword, Log, All);
+
 const char* GetOverlayName(int word, int ovidx)
 {
     if (word < (FILESTAR0SIZE+0x100)) return "STARFLT";
@@ -103,8 +107,8 @@ int GetOverlayIndex(int address, const char** overlayName)
         }
     }
 
-    fprintf(stderr, "Error: Cannot find index for address 0x%04x\n", address);
-    exit(1);
+    UE_LOG(LogStarflightFindword, Fatal, TEXT("Cannot find index for address 0x%04x"), address);
+    return -1; // Fatal will terminate, but return for completeness
 }
 
 const SF_WORD* GetWord(int word, int ovidx)
@@ -150,8 +154,8 @@ const char* FindWordCanFail(int word, int& ovidx, int canFail)
 
     if(canFail == 0)
     {
-        fprintf(stderr, "Error: Cannot find word 0x%04x\n", word);
-        exit(1);
+        UE_LOG(LogStarflightFindword, Fatal, TEXT("Cannot find word 0x%04x"), word);
+        return "unknown"; // Fatal will terminate, but return for completeness
    }
 
    return "unknown";
