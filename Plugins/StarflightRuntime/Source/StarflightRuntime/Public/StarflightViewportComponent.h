@@ -26,7 +26,10 @@ private:
 	int32 LatestPitch = 0;
 	int32 Width = 640;
 	int32 Height = 360;
+	bool bDebugAlternating = true;
+	uint64 FrameCounter = 0;
 
 	void OnFrame(const uint8* BGRA, int W, int H, int Pitch);
 	void UpdateTexture();
+	void FillTextureSolid(const FColor& Color);
 };

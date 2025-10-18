@@ -115,11 +115,61 @@ void AStarflightHUD::UpdateTexture()
 	OutputTexture->UpdateResource();
 }
 
+void AStarflightHUD::FillTextureSolid(const FColor& Color)
+{
+	if (!OutputTexture || !OutputTexture->IsValidLowLevel()) return;
+
+	// Ensure texture matches desired size
+	if (Width != OutputTexture->GetSizeX() || Height != OutputTexture->GetSizeY())
+	{
+		OutputTexture = UTexture2D::CreateTransient(Width, Height, PF_B8G8R8A8);
+		OutputTexture->SRGB = false;
+		OutputTexture->Filter = TF_Nearest;
+		OutputTexture->UpdateResource();
+	}
+
+	const int32 LocalW = OutputTexture->GetSizeX();
+	const int32 LocalH = OutputTexture->GetSizeY();
+	const int32 NumPixels = LocalW * LocalH;
+	const int32 NumBytes = NumPixels * 4;
+
+	// Build a temporary buffer of BGRA8
+	TArray<uint8> Bytes;
+	Bytes.SetNumUninitialized(NumBytes);
+	const uint8 B = Color.B;
+	const uint8 G = Color.G;
+	const uint8 R = Color.R;
+	const uint8 A = Color.A;
+	for (int32 i = 0; i < NumPixels; ++i)
+	{
+		const int32 o = i * 4;
+		Bytes[o + 0] = B;
+		Bytes[o + 1] = G;
+		Bytes[o + 2] = R;
+		Bytes[o + 3] = A;
+	}
+
+	FTexture2DMipMap& Mip = OutputTexture->GetPlatformData()->Mips[0];
+	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+	FMemory::Memcpy(TextureData, Bytes.GetData(), NumBytes);
+	Mip.BulkData.Unlock();
+	OutputTexture->UpdateResource();
+}
+
 void AStarflightHUD::DrawHUD()
 {
 	Super::DrawHUD();
 
-	UpdateTexture();
+	if (bDebugAlternating)
+	{
+		// Alternate between red and blue every frame
+		const bool bRed = (FrameCounter++ % 2) == 0;
+		FillTextureSolid(bRed ? FColor(255, 0, 0, 255) : FColor(0, 0, 255, 255));
+	}
+	else
+	{
+		UpdateTexture();
+	}
 
 	if (OutputTexture && Canvas)
 	{
