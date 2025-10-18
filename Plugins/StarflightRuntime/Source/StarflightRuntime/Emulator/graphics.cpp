@@ -4,6 +4,7 @@
 #include "graphics.h"
 #include "StarflightBridge.h"
 #include "cpu/cpu.h"
+#include "font_cp437.h"
 
 #include <atomic>
 #include <mutex>
@@ -56,19 +57,6 @@ constexpr int GRAPHICS_HEIGHT = 200;
 constexpr uint32_t TEXT_SEGMENT = 0xB800;
 constexpr uint32_t GRAPHICS_SEGMENT = 0xA000;
 
-// Simple 8x8 font (ASCII 32-127)
-static const uint8_t s_font8x8[96][8] = {
-    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Space
-    {0x18, 0x3C, 0x3C, 0x18, 0x18, 0x00, 0x18, 0x00}, // !
-    {0x36, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // "
-    {0x36, 0x36, 0x7F, 0x36, 0x7F, 0x36, 0x36, 0x00}, // #
-    {0x0C, 0x3E, 0x03, 0x1E, 0x30, 0x1F, 0x0C, 0x00}, // $
-    {0x00, 0x63, 0x33, 0x18, 0x0C, 0x66, 0x63, 0x00}, // %
-    {0x1C, 0x36, 0x1C, 0x6E, 0x3B, 0x33, 0x6E, 0x00}, // &
-    {0x06, 0x06, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00}, // '
-    // ... (rest would be filled in, using simplified versions for now)
-};
-
 void GraphicsInit()
 {
     s_framebuffer.resize(TEXT_WIDTH * TEXT_CHAR_WIDTH * TEXT_HEIGHT * TEXT_CHAR_HEIGHT * 4, 0);
@@ -119,9 +107,10 @@ void GraphicsUpdate()
                 uint8_t fgColor = attr & 0x0F;
                 uint8_t bgColor = (attr >> 4) & 0x0F;
                 
-                // Render 8x8 character
+                // Render 8x8 character using CP437 font
                 for (int cy = 0; cy < TEXT_CHAR_HEIGHT; ++cy) {
-                    uint8_t fontRow = (ch >= 32 && ch < 128) ? s_font8x8[ch - 32][cy] : 0;
+                    int fontOffset = ch * 8 + cy;
+                    uint8_t fontRow = vgafont8[fontOffset];
                     
                     for (int cx = 0; cx < TEXT_CHAR_WIDTH; ++cx) {
                         bool pixelOn = (fontRow & (1 << (7 - cx))) != 0;
@@ -273,8 +262,45 @@ void GraphicsText(char *s, int n)
 
 void GraphicsChar(unsigned char s)
 {
-    char ch = s;
-    GraphicsText(&ch, 1);
+    if (s_graphicsMode.load() != 0)
+    {
+        // Graphics mode - ignore for now
+        return;
+    }
+    
+    // Text mode - render character at cursor position using CP437 font
+    int fbWidth = TEXT_WIDTH * TEXT_CHAR_WIDTH;
+    
+    for (int jj = 0; jj < 8; jj++)
+    {
+        int fontOffset = ((int)s) * 8 + jj;
+        for (int ii = 0; ii < 8; ii++)
+        {
+            uint32_t color = 0xFF000000; // Black
+            if ((vgafont8[fontOffset]) & (1 << (7 - ii)))
+            {
+                color = 0xFFFFFFFF; // White
+            }
+            
+            int px = s_cursorX * 8 + ii;
+            int py = s_cursorY * 8 + jj;
+            int idx = (py * fbWidth + px) * 4;
+            
+            if (idx >= 0 && idx + 3 < (int)s_framebuffer.size())
+            {
+                s_framebuffer[idx + 0] = (color >> 0) & 0xFF;  // B
+                s_framebuffer[idx + 1] = (color >> 8) & 0xFF;  // G
+                s_framebuffer[idx + 2] = (color >> 16) & 0xFF; // R
+                s_framebuffer[idx + 3] = 0xFF;                  // A
+            }
+        }
+    }
+    
+    s_cursorX++;
+    if (s_cursorX >= 80)
+    {
+        GraphicsCarriageReturn();
+    }
 }
 
 void GraphicsCarriageReturn()
