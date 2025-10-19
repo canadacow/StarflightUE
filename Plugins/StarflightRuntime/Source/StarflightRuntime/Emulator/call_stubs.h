@@ -63,6 +63,7 @@ struct Rotoscope {
     int16_t blt_x, blt_y, blt_w, blt_h;
     uint8_t bgColor, fgColor;
     struct { int x0, x1, y0, y1, total, n; } lineData; // needed by line drawing path
+    struct { char character; uint16_t fontNum; uint8_t xormode; } textData;
     TaggedData runBitData;
     TaggedData picData;
     
@@ -255,5 +256,5 @@ inline void GraphicsDeleteMissile(uint64_t id, const MissileRecord& mr) {}
 inline void GraphicsReportGameFrame() {}
 inline void GraphicsSplash(uint32_t ds, int fileNum) {}
 inline void GraphicsMoveSpaceMan(int, int) {}
-inline uint8_t GraphicsPeekDirect(int x, int y, uint32_t offset, Rotoscope* rs = nullptr) { return 0; }
-inline void GraphicsPixelDirect(int x, int y, int color, uint32_t offset, Rotoscope rs = Rotoscope()) {}
+uint32_t GraphicsPeekDirect(int x, int y, uint32_t offset, Rotoscope* rs = nullptr);
+void GraphicsPixelDirect(int x, int y, uint32_t color, uint32_t offset, Rotoscope rs = Rotoscope());

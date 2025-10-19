@@ -1,24 +1,12 @@
-uint32_t colortable[16] =
-{
-0x000000, // black
-0x0000AA, // blue
-0x00AA00, // green
-0x00AAAA, // cyan
-0xAA0000, // red
-0xAA00AA, // magenta
-0xAA5500, // brown
-0xAAAAAA, // light gray
-0x555555, // dark gray
-0x5555FF,
-0x55FF55,
-0x55FFFF,
-0xFF5555,
-0xFF55FF,
-0xFFFF55,
-0xFFFFFF,
-};
+// Externals are provided by other translation units
+#pragma once
+#include <cstdint>
+#include <unordered_map>
+#include <array>
+extern uint32_t colortable[16];
+extern const uint8_t vgafont8[256*8];
 
-static uint8_t vgafont8[256*8] =
+const uint8_t vgafont8_stub[256*8] = 
 {
 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 0x7e,0x81,0xa5,0x81,0xbd,0x99,0x81,0x7e,

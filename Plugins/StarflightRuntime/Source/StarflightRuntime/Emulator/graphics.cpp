@@ -5,6 +5,8 @@
 #include "../Public/StarflightBridge.h"
 #include "cpu/cpu.h"
 #include "font_cp437.h"
+#include "tables.h"
+#include <cassert>
 
 #include <atomic>
 #include <mutex>
@@ -173,30 +175,27 @@ void GraphicsMode(int mode)
 void GraphicsClear(int color, uint32_t offset, int byteCount)
 {
     std::lock_guard<std::mutex> lg(rotoscopePixelMutex);
-
     uint32_t dest = (uint32_t)offset;
-    dest <<= 4;               // segment: convert to linear
-    dest -= 0xA0000;          // subtract EGA base
-    dest *= 4;                // 4 bytes per pixel backing store
 
-    auto c = colortable[color & 0xF];
+    dest <<= 4; // Convert to linear addres
+    dest -= 0xa0000; // Subtract from EGA page
+    dest *= 4; // Convert to our SDL memory linear address
 
-    // Native clamps to a fixed 0x2000 range per call
+    uint32_t destOffset = 0;
+
+    auto c = colortable[color&0xF];
+
     byteCount = 0x2000;
 
-    for (uint32_t i = 0; i < (uint32_t)byteCount * 4; ++i)
+    for(uint32_t i = 0; i < (uint32_t)byteCount * 4; ++i)
     {
-        graphicsPixels[dest + i] = c;
-        rotoscopePixels[dest + i] = Rotoscope{}; // ClearPixel
+        graphicsPixels[dest + destOffset + i] = c;
+        rotoscopePixels[dest + destOffset + i] = ClearPixel;
     }
 }
 
-void GraphicsPixel(int x, int y, int color, uint32_t offset, Rotoscope pc)
+void GraphicsPixelDirect(int x, int y, uint32_t color, uint32_t offset, Rotoscope pc)
 {
-    pc.EGAcolor = color & 0xF;
-    // Convert EGA color index to 0x00RRGGBB and write via native direct path
-    uint32_t argb = colortable[color & 0xF];
-
     std::lock_guard<std::mutex> lg(rotoscopePixelMutex);
 
     if (offset == 0)
@@ -205,36 +204,57 @@ void GraphicsPixel(int x, int y, int color, uint32_t offset, Rotoscope pc)
     }
 
     uint32_t base = (uint32_t)offset;
-    base <<= 4;               // segment to linear
-    base -= 0xA0000;          // subtract EGA base
-    base *= 4;                // 4-byte pixels in backing store
+    base <<= 4;          // segment->linear
+    base -= 0xA0000;     // subtract EGA base
+    base *= 4;           // 4-byte pixels
 
-    // Native Y flip
     int yy = 199 - y;
-    if (x < 0 || x >= GRAPHICS_MODE_WIDTH || yy < 0 || yy >= GRAPHICS_MODE_HEIGHT) return;
+    if (x < 0 || x >= GRAPHICS_MODE_WIDTH || yy < 0 || yy >= GRAPHICS_MODE_HEIGHT)
+    {
+        return;
+    }
 
-    pc.argb = argb;
-    rotoscopePixels[yy * GRAPHICS_MODE_WIDTH + x + base] = pc;
-    graphicsPixels[yy * GRAPHICS_MODE_WIDTH + x + base] = argb;
+    pc.argb = color;
+    const uint32_t idx = yy * GRAPHICS_MODE_WIDTH + x + base;
+    rotoscopePixels[idx] = pc;
+    graphicsPixels[idx] = color;
+}
+
+void GraphicsPixel(int x, int y, int color, uint32_t offset, Rotoscope pc)
+{
+    pc.EGAcolor = color & 0xF;
+    GraphicsPixelDirect(x, y, colortable[color & 0xF], offset, pc);
+}
+
+uint32_t GraphicsPeekDirect(int x, int y, uint32_t offset, Rotoscope* pc)
+{
+    if(offset == 0)
+    {
+        offset = 0xa000;
+    }
+
+    offset <<= 4; // Convert to linear addres
+    offset -= 0xa0000; // Subtract from EGA page
+    offset *= 4; // Convert to our SDL memory linear address
+
+    y = 199 - y;
+
+    if(x < 0 || x >= GRAPHICS_MODE_WIDTH || y < 0 || y >= GRAPHICS_MODE_HEIGHT)
+    {
+        return colortable[0];
+    }
+
+    if(pc)
+    {
+        *pc = rotoscopePixels[y * GRAPHICS_MODE_WIDTH + x + offset];
+    }
+
+    return graphicsPixels[y * GRAPHICS_MODE_WIDTH + x + offset];
 }
 
 uint8_t GraphicsPeek(int x, int y, uint32_t offset, Rotoscope* pc)
 {
-    if (offset == 0) offset = 0xA000;
-
-    uint32_t base = (uint32_t)offset;
-    base <<= 4;
-    base -= 0xA0000;
-    base *= 4;
-
-    int yy = 199 - y;
-    if (x < 0 || x >= GRAPHICS_MODE_WIDTH || yy < 0 || yy >= GRAPHICS_MODE_HEIGHT)
-        return 0;
-
-    const uint32_t pixel = graphicsPixels[yy * GRAPHICS_MODE_WIDTH + x + base];
-    if (pc) { *pc = rotoscopePixels[yy * GRAPHICS_MODE_WIDTH + x + base]; }
-
-    // Map back to EGA index
+    const uint32_t pixel = GraphicsPeekDirect(x, y, offset, pc);
     for (int i = 0; i < 16; ++i) if (colortable[i] == pixel) return (uint8_t)i;
     return 0;
 }
@@ -270,24 +290,75 @@ void GraphicsLine(int x1, int y1, int x2, int y2, int color, int xormode, uint32
     }
 }
 
-void GraphicsBLT(int16_t x1, int16_t y1, int16_t w, int16_t h, const char* image, int color, int xormode, uint32_t offset, Rotoscope rs)
+void GraphicsBLT(int16_t x1, int16_t y1, int16_t h, int16_t w, const char* image, int color, int xormode, uint32_t offset, Rotoscope pc)
 {
-    // Blit a monochrome bitmap
-    for (int16_t y = 0; y < h; ++y) {
-        for (int16_t x = 0; x < w; ++x) {
-            int byteIdx = (y * ((w + 7) / 8)) + (x / 8);
-            int bitIdx = 7 - (x % 8);
-            bool pixelOn = (image[byteIdx] & (1 << bitIdx)) != 0;
-            
-            if (pixelOn) {
-                if (xormode) {
-                    uint8_t existing = GraphicsPeek(x1 + x, y1 + y, offset);
-                    GraphicsPixel(x1 + x, y1 + y, existing ^ color, offset);
-                } else {
-                    GraphicsPixel(x1 + x, y1 + y, color, offset);
+    auto img = (const short int*)image;
+    int n = 0;
+
+    uint16_t xoffset = 0;
+    uint16_t yoffset = 0;
+
+    pc.blt_w = w;
+    pc.blt_h = h;
+
+    for(int y=y1; y>y1-h; y--)
+    {
+        xoffset = 0;
+
+        for(int x=x1; x<x1+w; x++)
+        {
+            int x0 = x;
+            int y0 = y;
+
+            Rotoscope srcPc{};
+            bool hasPixel = false;
+            auto src = GraphicsPeek(x0, y0, offset, &srcPc);
+
+            pc.blt_x = xoffset;
+            pc.blt_y = yoffset;
+
+            if(pc.content == TextPixel)
+            {
+                pc.bgColor = src;
+            }
+
+            if ((*img) & (1<<(15-n)))
+            {
+                if(xormode) {
+                    auto xored = src ^ (color&0xF);
+
+                    if(srcPc.content == TextPixel)
+                    {
+                        srcPc.bgColor = srcPc.bgColor ^ (color & 0xf);
+                        srcPc.fgColor = srcPc.fgColor ^ (color & 0xf);
+                        GraphicsPixel(x0, y0, xored, offset, srcPc);
+                    }
+                    else
+                    {
+                        GraphicsPixel(x0, y0, xored, offset, pc);
+                    }
+                }
+                else
+                {
+                    GraphicsPixel(x0, y0, color, offset, pc);
                 }
             }
+            else
+            {
+                GraphicsPixel(x0, y0, src, offset, pc);
+            }
+            
+            n++;
+            if (n == 16)
+            {
+                n = 0;
+                img++;
+            }
+
+            ++xoffset;
         }
+
+        ++yoffset;
     }
 }
 
@@ -340,9 +411,55 @@ void GraphicsSetCursor(int x, int y)
 
 int16_t GraphicsFONT(uint16_t num, uint32_t character, int x1, int y1, int color, int xormode, uint32_t offset)
 {
-    // Stub: render character at position
-    // Return character width
-    return TEXT_CHAR_WIDTH;
+    char c = (char)character;
+
+    Rotoscope rs{};
+
+    rs.content = TextPixel;
+    rs.textData.character = c;
+    rs.textData.fontNum = num;
+    rs.fgColor = color;
+    rs.textData.xormode = xormode;
+
+    switch(num)
+    {
+        case 1:
+        {
+            auto width = 3;
+            auto height = 5;
+            auto image = font1_table[c];
+
+            GraphicsBLT(x1, y1, height, width, (const char*)&image, color, xormode, offset, rs);
+
+            return width;
+        }
+        case 2:
+        {
+            auto width = char_width_table[c];
+            auto height = 7;
+            auto image = font2_table[c].data();
+
+            GraphicsBLT(x1, y1, height, width, (const char*)image, color, xormode, offset, rs);
+
+            return width;
+        }
+        case 3:
+        {
+            auto width = char_width_table[c];
+            auto height = 9;
+            auto image = font3_table[c].data();
+
+            GraphicsBLT(x1, y1, height, width, (const char*)image, color, xormode, offset, rs);
+
+            return width;            
+        }
+        default:
+            assert(false);
+            break;
+    }
+
+    assert(false);
+    return 1;
 }
 
 void GraphicsCopyLine(uint16_t sourceSeg, uint16_t destSeg, uint16_t si, uint16_t di, uint16_t count)
@@ -352,18 +469,18 @@ void GraphicsCopyLine(uint16_t sourceSeg, uint16_t destSeg, uint16_t si, uint16_
     uint32_t src = (uint32_t)sourceSeg;
     uint32_t dest = (uint32_t)destSeg;
 
-    src <<= 4;   // segment->linear
-    src -= 0xA0000;
-    src *= 4;
+    src <<= 4; // Convert to linear addres
+    src -= 0xa0000; // Subtract from EGA page
+    src *= 4; // Convert to our SDL memory linear address
 
-    dest <<= 4;  // segment->linear
-    dest -= 0xA0000;
-    dest *= 4;
+    dest <<= 4; // Convert to linear addres
+    dest -= 0xa0000; // Subtract from EGA page
+    dest *= 4; // Convert to our SDL memory linear address
 
     uint32_t srcOffset = (uint32_t)si * 4;
     uint32_t destOffset = (uint32_t)di * 4;
 
-    for (uint32_t i = 0; i < (uint32_t)count * 4; ++i)
+    for(uint32_t i = 0; i < (uint32_t)count * 4; ++i)
     {
         graphicsPixels[dest + destOffset + i] = graphicsPixels[src + srcOffset + i];
         rotoscopePixels[dest + destOffset + i] = rotoscopePixels[src + srcOffset + i];
