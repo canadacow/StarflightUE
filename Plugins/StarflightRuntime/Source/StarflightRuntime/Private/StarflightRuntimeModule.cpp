@@ -2,6 +2,8 @@
 #include "StarflightBridge.h"
 #include "StarflightAssets.h"
 #include "Engine/World.h"
+#include "Framework/Application/SlateApplication.h"
+#include "StarflightInputPreprocessor.h"
 
 #include "GameFramework/PlayerController.h"
 #include "StarflightViewportComponent.h"
@@ -18,12 +20,24 @@ public:
 		// Initialize asset system
 		FStarflightAssets::Get().Initialize();
 		
-		// Emulator will be started when HUD BeginPlay() is called (when Play is pressed)
+        // Emulator will be started when HUD BeginPlay() is called (when Play is pressed)
 		WorldInitHandle = FWorldDelegates::OnPostWorldInitialization.AddRaw(this, &FStarflightRuntimeModule::OnWorldInit);
+
+        // Register a global input preprocessor to route keyboard events to the emulator
+        if (FSlateApplication::IsInitialized())
+        {
+            InputPreprocessor = MakeShared<FStarflightInputPreprocessor>();
+            FSlateApplication::Get().RegisterInputPreProcessor(InputPreprocessor);
+        }
 	}
 
 	virtual void ShutdownModule() override
 	{
+        if (InputPreprocessor.IsValid() && FSlateApplication::IsInitialized())
+        {
+            FSlateApplication::Get().UnregisterInputPreProcessor(InputPreprocessor);
+            InputPreprocessor.Reset();
+        }
 		if (WorldInitHandle.IsValid())
 		{
 			FWorldDelegates::OnPostWorldInitialization.Remove(WorldInitHandle);
@@ -38,6 +52,7 @@ public:
 
 private:
 	FDelegateHandle WorldInitHandle;
+    TSharedPtr<IInputProcessor> InputPreprocessor;
 
 	void OnWorldInit(UWorld* World, const UWorld::InitializationValues)
 	{

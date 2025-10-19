@@ -14,7 +14,8 @@ public class StarflightUE : ModuleRules
             "Engine",
             "InputCore",
             "RenderCore",
-            "RHI"
+            "RHI",
+            "StarflightRuntime"
         });
 
         PrivateDependencyModuleNames.AddRange(new string[]

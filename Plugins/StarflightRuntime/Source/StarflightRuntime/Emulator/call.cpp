@@ -3346,7 +3346,11 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             uint16_t key = GraphicsGetKey();
             Push(key);
 
-            SF_Log("KEY %u\n", key);
+            if (key != 0)
+            {
+                SF_Log("KEY %u\n", key);
+            }
+            
 
             /*
             // 1. either low byte ascii, high byte 0
