@@ -2,7 +2,7 @@
 #pragma warning(disable: 4883) // function size suppresses optimizations
 
 #include "graphics.h"
-#include "StarflightBridge.h"
+#include "../Public/StarflightBridge.h"
 #include "cpu/cpu.h"
 #include "font_cp437.h"
 
@@ -12,25 +12,25 @@
 #include <cstring>
 #include <algorithm>
 
-// EGA color palette (BGRA format for UE)
+// EGA color palette in 0x00RRGGBB format (matches native)
 // Made non-static so call.cpp can access it
 uint32_t colortable[16] = {
-    0xFF000000, // 0: Black
-    0xFF0000AA, // 1: Blue
-    0xFF00AA00, // 2: Green
-    0xFF00AAAA, // 3: Cyan
-    0xFFAA0000, // 4: Red
-    0xFFAA00AA, // 5: Magenta
-    0xFFAA5500, // 6: Brown
-    0xFFAAAAAA, // 7: Light Gray
-    0xFF555555, // 8: Dark Gray
-    0xFF5555FF, // 9: Light Blue
-    0xFF55FF55, // 10: Light Green
-    0xFF55FFFF, // 11: Light Cyan
-    0xFFFF5555, // 12: Light Red
-    0xFFFF55FF, // 13: Light Magenta
-    0xFFFFFF55, // 14: Yellow
-    0xFFFFFFFF  // 15: White
+    0x00000000, // 0: Black
+    0x000000AA, // 1: Blue
+    0x0000AA00, // 2: Green
+    0x0000AAAA, // 3: Cyan
+    0x00AA0000, // 4: Red
+    0x00AA00AA, // 5: Magenta
+    0x00AA5500, // 6: Brown
+    0x00AAAAAA, // 7: Light Gray
+    0x00555555, // 8: Dark Gray
+    0x005555FF, // 9: Light Blue
+    0x0055FF55, // 10: Light Green
+    0x0055FFFF, // 11: Light Cyan
+    0x00FF5555, // 12: Light Red
+    0x00FF55FF, // 13: Light Magenta
+    0x00FFFF55, // 14: Yellow
+    0x00FFFFFF  // 15: White
 };
 
 bool graphicsIsShutdown = false;
@@ -42,6 +42,9 @@ std::atomic<bool> stopEmulationThread{false};
 static std::atomic<int> s_graphicsMode{0}; // 0 = text, 1 = graphics
 static std::mutex s_framebufferMutex;
 static std::vector<uint8_t> s_framebuffer;
+static std::vector<uint32_t> graphicsPixels; // 0x00RRGGBB like native
+static std::vector<Rotoscope> rotoscopePixels;
+static std::mutex rotoscopePixelMutex;
 static int s_cursorX = 0;
 static int s_cursorY = 0;
 
@@ -50,8 +53,10 @@ constexpr int TEXT_WIDTH = 80;
 constexpr int TEXT_HEIGHT = 25;
 constexpr int TEXT_CHAR_WIDTH = 8;
 constexpr int TEXT_CHAR_HEIGHT = 8;
-constexpr int GRAPHICS_WIDTH = 320;
-constexpr int GRAPHICS_HEIGHT = 200;
+constexpr int GRAPHICS_MODE_WIDTH = 160;   // Match native
+constexpr int GRAPHICS_MODE_HEIGHT = 200;  // Match native
+constexpr int GRAPHICS_PAGE_COUNT = 2;
+constexpr int GRAPHICS_MEMORY_ALLOC = 65536; // Matches native backing store
 
 // Video memory offsets
 constexpr uint32_t TEXT_SEGMENT = 0xB800;
@@ -64,6 +69,8 @@ void GraphicsInit()
     s_graphicsMode.store(0); // Start in text mode (80x25), game will switch to graphics mode
     s_cursorX = 0;
     s_cursorY = 0;
+    graphicsPixels.assign(GRAPHICS_MEMORY_ALLOC, 0);
+    rotoscopePixels.assign(GRAPHICS_MEMORY_ALLOC, Rotoscope{});
     
     // Clear text memory (0xB800) to black background, light gray foreground
     uint32_t textMemBase = ComputeAddress(TEXT_SEGMENT, 0);
@@ -133,30 +140,28 @@ void GraphicsUpdate()
         EmitFrame(s_framebuffer.data(), fbWidth, fbHeight, fbWidth * 4);
     }
     else {
-        // Graphics mode: 320x200, 4 planes EGA
-        // For now, just read plane 0 (simplified)
-        uint32_t gfxMemBase = ComputeAddress(GRAPHICS_SEGMENT, 0);
-        
-        if (s_framebuffer.size() != GRAPHICS_WIDTH * GRAPHICS_HEIGHT * 4) {
-            s_framebuffer.resize(GRAPHICS_WIDTH * GRAPHICS_HEIGHT * 4);
+        // Graphics mode: render from backing store like native
+        if (s_framebuffer.size() != GRAPHICS_MODE_WIDTH * GRAPHICS_MODE_HEIGHT * 4) {
+            s_framebuffer.resize(GRAPHICS_MODE_WIDTH * GRAPHICS_MODE_HEIGHT * 4);
         }
-        
-        for (int y = 0; y < GRAPHICS_HEIGHT; ++y) {
-            for (int x = 0; x < GRAPHICS_WIDTH; ++x) {
-                // Simplified: read linear framebuffer (not actual EGA planar)
-                uint32_t offset = gfxMemBase + y * GRAPHICS_WIDTH + x;
-                uint8_t colorIdx = m[offset] & 0x0F;
-                uint32_t color = colortable[colorIdx];
-                
-                int idx = (y * GRAPHICS_WIDTH + x) * 4;
-                s_framebuffer[idx + 0] = (color >> 0) & 0xFF;  // B
-                s_framebuffer[idx + 1] = (color >> 8) & 0xFF;  // G
-                s_framebuffer[idx + 2] = (color >> 16) & 0xFF; // R
-                s_framebuffer[idx + 3] = 0xFF;                  // A
+
+        for (int y = 0; y < GRAPHICS_MODE_HEIGHT; ++y) {
+            for (int x = 0; x < GRAPHICS_MODE_WIDTH; ++x) {
+                // Display page base is 0xA000 -> offset index 0 in our arrays
+                const uint32_t pixel = graphicsPixels[y * GRAPHICS_MODE_WIDTH + x]; // already y-flipped at write time
+                const uint8_t r = (pixel >> 16) & 0xFF;
+                const uint8_t g = (pixel >> 8) & 0xFF;
+                const uint8_t b = (pixel >> 0) & 0xFF;
+
+                const int idx = (y * GRAPHICS_MODE_WIDTH + x) * 4;
+                s_framebuffer[idx + 0] = b;
+                s_framebuffer[idx + 1] = g;
+                s_framebuffer[idx + 2] = r;
+                s_framebuffer[idx + 3] = 0xFF;
             }
         }
-        
-        EmitFrame(s_framebuffer.data(), GRAPHICS_WIDTH, GRAPHICS_HEIGHT, GRAPHICS_WIDTH * 4);
+
+        EmitFrame(s_framebuffer.data(), GRAPHICS_MODE_WIDTH, GRAPHICS_MODE_HEIGHT, GRAPHICS_MODE_WIDTH * 4);
     }
 }
 
@@ -167,55 +172,101 @@ void GraphicsMode(int mode)
 
 void GraphicsClear(int color, uint32_t offset, int byteCount)
 {
-    // Write to CPU memory at the given offset
-    uint32_t addr = ComputeAddress(GRAPHICS_SEGMENT, offset);
-    std::memset(&m[addr], color, byteCount);
+    std::lock_guard<std::mutex> lg(rotoscopePixelMutex);
+
+    uint32_t dest = (uint32_t)offset;
+    dest <<= 4;               // segment: convert to linear
+    dest -= 0xA0000;          // subtract EGA base
+    dest *= 4;                // 4 bytes per pixel backing store
+
+    auto c = colortable[color & 0xF];
+
+    // Native clamps to a fixed 0x2000 range per call
+    byteCount = 0x2000;
+
+    for (uint32_t i = 0; i < (uint32_t)byteCount * 4; ++i)
+    {
+        graphicsPixels[dest + i] = c;
+        rotoscopePixels[dest + i] = Rotoscope{}; // ClearPixel
+    }
 }
 
-void GraphicsPixel(int x, int y, int color, uint32_t offset, Rotoscope rs)
+void GraphicsPixel(int x, int y, int color, uint32_t offset, Rotoscope pc)
 {
-    if (x < 0 || x >= GRAPHICS_WIDTH || y < 0 || y >= GRAPHICS_HEIGHT) return;
-    
-    uint32_t addr = ComputeAddress(GRAPHICS_SEGMENT, offset + y * GRAPHICS_WIDTH + x);
-    m[addr] = color & 0x0F;
+    pc.EGAcolor = color & 0xF;
+    // Convert EGA color index to 0x00RRGGBB and write via native direct path
+    uint32_t argb = colortable[color & 0xF];
+
+    std::lock_guard<std::mutex> lg(rotoscopePixelMutex);
+
+    if (offset == 0)
+    {
+        offset = 0xA000;
+    }
+
+    uint32_t base = (uint32_t)offset;
+    base <<= 4;               // segment to linear
+    base -= 0xA0000;          // subtract EGA base
+    base *= 4;                // 4-byte pixels in backing store
+
+    // Native Y flip
+    int yy = 199 - y;
+    if (x < 0 || x >= GRAPHICS_MODE_WIDTH || yy < 0 || yy >= GRAPHICS_MODE_HEIGHT) return;
+
+    pc.argb = argb;
+    rotoscopePixels[yy * GRAPHICS_MODE_WIDTH + x + base] = pc;
+    graphicsPixels[yy * GRAPHICS_MODE_WIDTH + x + base] = argb;
 }
 
-uint8_t GraphicsPeek(int x, int y, uint32_t offset, Rotoscope* rs)
+uint8_t GraphicsPeek(int x, int y, uint32_t offset, Rotoscope* pc)
 {
-    if (x < 0 || x >= GRAPHICS_WIDTH || y < 0 || y >= GRAPHICS_HEIGHT) return 0;
-    
-    uint32_t addr = ComputeAddress(GRAPHICS_SEGMENT, offset + y * GRAPHICS_WIDTH + x);
-    return m[addr];
+    if (offset == 0) offset = 0xA000;
+
+    uint32_t base = (uint32_t)offset;
+    base <<= 4;
+    base -= 0xA0000;
+    base *= 4;
+
+    int yy = 199 - y;
+    if (x < 0 || x >= GRAPHICS_MODE_WIDTH || yy < 0 || yy >= GRAPHICS_MODE_HEIGHT)
+        return 0;
+
+    const uint32_t pixel = graphicsPixels[yy * GRAPHICS_MODE_WIDTH + x + base];
+    if (pc) { *pc = rotoscopePixels[yy * GRAPHICS_MODE_WIDTH + x + base]; }
+
+    // Map back to EGA index
+    for (int i = 0; i < 16; ++i) if (colortable[i] == pixel) return (uint8_t)i;
+    return 0;
 }
 
 void GraphicsLine(int x1, int y1, int x2, int y2, int color, int xormode, uint32_t offset)
 {
-    // Bresenham's line algorithm
-    int dx = abs(x2 - x1);
-    int dy = abs(y2 - y1);
-    int sx = (x1 < x2) ? 1 : -1;
-    int sy = (y1 < y2) ? 1 : -1;
-    int err = dx - dy;
-    
-    while (true) {
-        if (xormode) {
-            uint8_t existing = GraphicsPeek(x1, y1, offset);
-            GraphicsPixel(x1, y1, existing ^ color, offset);
-        } else {
-            GraphicsPixel(x1, y1, color, offset);
-        }
-        
-        if (x1 == x2 && y1 == y2) break;
-        
-        int e2 = 2 * err;
-        if (e2 > -dy) {
-            err -= dy;
-            x1 += sx;
-        }
-        if (e2 < dx) {
-            err += dx;
-            y1 += sy;
-        }
+    float x = (float)x1;
+    float y = (float)y1;
+    float dx = (float)(x2 - x1);
+    float dy = (float)(y2 - y1);
+    int n = (int)fabsf(dx);
+    if ((int)fabsf(dy) > n) n = (int)fabsf(dy);
+    if (n == 0) return;
+    dx /= n;
+    dy /= n;
+
+    Rotoscope rs{};
+    rs.content = LinePixel;
+    rs.lineData.x0 = x1;
+    rs.lineData.x1 = x2;
+    rs.lineData.y0 = 199 - y1;
+    rs.lineData.y1 = 199 - y2;
+    rs.lineData.total = n;
+    rs.fgColor = color;
+
+    for (int i = 0; i <= n; ++i)
+    {
+        rs.lineData.n = i;
+        rs.bgColor = GraphicsPeek((int)x, (int)y, offset);
+        GraphicsPixel((int)x, (int)y, color, offset, rs);
+        x += dx;
+        y += dy;
     }
 }
 
@@ -296,9 +347,27 @@ int16_t GraphicsFONT(uint16_t num, uint32_t character, int x1, int y1, int color
 
 void GraphicsCopyLine(uint16_t sourceSeg, uint16_t destSeg, uint16_t si, uint16_t di, uint16_t count)
 {
-    uint32_t srcAddr = ComputeAddress(sourceSeg, si);
-    uint32_t dstAddr = ComputeAddress(destSeg, di);
-    std::memcpy(&m[dstAddr], &m[srcAddr], count);
+    std::lock_guard<std::mutex> lg(rotoscopePixelMutex);
+
+    uint32_t src = (uint32_t)sourceSeg;
+    uint32_t dest = (uint32_t)destSeg;
+
+    src <<= 4;   // segment->linear
+    src -= 0xA0000;
+    src *= 4;
+
+    dest <<= 4;  // segment->linear
+    dest -= 0xA0000;
+    dest *= 4;
+
+    uint32_t srcOffset = (uint32_t)si * 4;
+    uint32_t destOffset = (uint32_t)di * 4;
+
+    for (uint32_t i = 0; i < (uint32_t)count * 4; ++i)
+    {
+        graphicsPixels[dest + destOffset + i] = graphicsPixels[src + srcOffset + i];
+        rotoscopePixels[dest + destOffset + i] = rotoscopePixels[src + srcOffset + i];
+    }
 }
 
 void GraphicsSave(char *filename)

@@ -3,6 +3,7 @@
 #include <mutex>
 #include <chrono>
 #include <cmath>
+#include <vector>
 
 // Stubs for missing dependencies in call.cpp
 
@@ -61,6 +62,7 @@ struct Rotoscope {
     uint32_t argb;
     int16_t blt_x, blt_y, blt_w, blt_h;
     uint8_t bgColor, fgColor;
+    struct { int x0, x1, y0, y1, total, n; } lineData; // needed by line drawing path
     TaggedData runBitData;
     TaggedData picData;
     
