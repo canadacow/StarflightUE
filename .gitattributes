@@ -1,0 +1,2 @@
+# Unreal project content (project-level)
+Content/** filter=lfs diff=lfs merge=lfs -text
