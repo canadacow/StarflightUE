@@ -256,33 +256,13 @@ void GraphicsChar(unsigned char s)
         return;
     }
     
-    // Text mode - render character at cursor position using CP437 font
-    int fbWidth = TEXT_WIDTH * TEXT_CHAR_WIDTH;
+    // Text mode - write character to text memory segment 0xB800
+    // GraphicsUpdate() will render it from there
+    uint32_t textMemBase = ComputeAddress(TEXT_SEGMENT, 0);
+    uint32_t offset = textMemBase + (s_cursorY * TEXT_WIDTH + s_cursorX) * 2;
     
-    for (int jj = 0; jj < 8; jj++)
-    {
-        int fontOffset = ((int)s) * 8 + jj;
-        for (int ii = 0; ii < 8; ii++)
-        {
-            uint32_t color = 0xFF000000; // Black
-            if ((vgafont8[fontOffset]) & (1 << (7 - ii)))
-            {
-                color = 0xFFFFFFFF; // White
-            }
-            
-            int px = s_cursorX * 8 + ii;
-            int py = s_cursorY * 8 + jj;
-            int idx = (py * fbWidth + px) * 4;
-            
-            if (idx >= 0 && idx + 3 < (int)s_framebuffer.size())
-            {
-                s_framebuffer[idx + 0] = (color >> 0) & 0xFF;  // B
-                s_framebuffer[idx + 1] = (color >> 8) & 0xFF;  // G
-                s_framebuffer[idx + 2] = (color >> 16) & 0xFF; // R
-                s_framebuffer[idx + 3] = 0xFF;                  // A
-            }
-        }
-    }
+    m[offset] = s;          // Character
+    m[offset + 1] = 0x07;   // Attribute (light gray on black)
     
     s_cursorX++;
     if (s_cursorX >= 80)
