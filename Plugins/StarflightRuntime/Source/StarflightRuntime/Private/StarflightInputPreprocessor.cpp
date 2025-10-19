@@ -14,7 +14,7 @@ bool FStarflightInputPreprocessor::HandleKeyDownEvent(FSlateApplication& SlateAp
 
 bool FStarflightInputPreprocessor::HandleKeyUpEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent)
 {
-    return true; // consume to avoid editor shortcuts in PIE
+    return true; // consume during play
 }
 
 

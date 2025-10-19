@@ -21,14 +21,7 @@ public:
 		FStarflightAssets::Get().Initialize();
 		
         // Emulator will be started when HUD BeginPlay() is called (when Play is pressed)
-		WorldInitHandle = FWorldDelegates::OnPostWorldInitialization.AddRaw(this, &FStarflightRuntimeModule::OnWorldInit);
-
-        // Register a global input preprocessor to route keyboard events to the emulator
-        if (FSlateApplication::IsInitialized())
-        {
-            InputPreprocessor = MakeShared<FStarflightInputPreprocessor>();
-            FSlateApplication::Get().RegisterInputPreProcessor(InputPreprocessor);
-        }
+        WorldInitHandle = FWorldDelegates::OnPostWorldInitialization.AddRaw(this, &FStarflightRuntimeModule::OnWorldInit);
 	}
 
 	virtual void ShutdownModule() override
@@ -59,7 +52,14 @@ private:
 		if (!World) return;
 		if (World->WorldType != EWorldType::Game && World->WorldType != EWorldType::PIE) return;
 
-		UE_LOG(LogStarflightModule, Warning, TEXT("OnWorldInit for world: %s"), *World->GetName());
+        UE_LOG(LogStarflightModule, Warning, TEXT("OnWorldInit for world: %s"), *World->GetName());
+
+        // Register input preprocessor only for Game/PIE
+        if (FSlateApplication::IsInitialized() && !InputPreprocessor.IsValid())
+        {
+            InputPreprocessor = MakeShared<FStarflightInputPreprocessor>();
+            FSlateApplication::Get().RegisterInputPreProcessor(InputPreprocessor);
+        }
 		
 		// Delay spawn until player controller exists
 		FTimerHandle TimerHandle;
