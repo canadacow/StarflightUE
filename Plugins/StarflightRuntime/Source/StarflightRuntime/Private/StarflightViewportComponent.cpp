@@ -6,6 +6,8 @@
 #include "StarflightBridge.h"
 #include "Engine/Canvas.h"
 #include "Engine/Texture2D.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Components/MeshComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightHUD, Log, All);
 
@@ -183,5 +185,126 @@ void AStarflightHUD::DrawHUD()
 	else
 	{
 		UE_LOG(LogStarflightHUD, Warning, TEXT("DrawHUD called but OutputTexture=%p Canvas=%p"), OutputTexture, (void*)Canvas);
+	}
+}
+
+
+// ---------------- UStarflightViewportComponent ----------------
+
+UStarflightViewportComponent::UStarflightViewportComponent()
+{
+	PrimaryComponentTick.bCanEverTick = true;
+}
+
+void UStarflightViewportComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	OutputTexture = UTexture2D::CreateTransient(Width, Height, PF_B8G8R8A8);
+	OutputTexture->SRGB = false;
+	OutputTexture->Filter = TF_Nearest;
+	OutputTexture->UpdateResource();
+
+	// Auto-pick first mesh on owner if not assigned
+	if (!TargetMesh)
+	{
+		TargetMesh = GetOwner() ? GetOwner()->FindComponentByClass<UMeshComponent>() : nullptr;
+	}
+
+	EnsureMID();
+
+	SetFrameSink([this](const uint8* BGRA, int W, int H, int Pitch)
+	{
+		OnFrame(BGRA, W, H, Pitch);
+	});
+
+	StartStarflight();
+}
+
+void UStarflightViewportComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	Super::EndPlay(EndPlayReason);
+
+	StopStarflight();
+	SetFrameSink(nullptr);
+}
+
+void UStarflightViewportComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	UpdateTexture();
+	EnsureMID();
+	if (DynamicMID && OutputTexture)
+	{
+		DynamicMID->SetTextureParameterValue(TextureParameterName, OutputTexture);
+	}
+}
+
+void UStarflightViewportComponent::OnFrame(const uint8* BGRA, int W, int H, int Pitch)
+{
+	FScopeLock Lock(&FrameMutex);
+	Width = W;
+	Height = H;
+	LatestPitch = Pitch;
+	LatestFrame.SetNum(W * H * 4);
+	if (Pitch == W * 4)
+	{
+		FMemory::Memcpy(LatestFrame.GetData(), BGRA, W * H * 4);
+	}
+	else
+	{
+		for (int y = 0; y < H; ++y)
+		{
+			FMemory::Memcpy(
+				LatestFrame.GetData() + y * W * 4,
+				BGRA + y * Pitch,
+				W * 4
+			);
+		}
+	}
+}
+
+void UStarflightViewportComponent::UpdateTexture()
+{
+	if (!OutputTexture || !OutputTexture->IsValidLowLevel()) return;
+
+	TArray<uint8> LocalCopy;
+	int32 LocalW, LocalH;
+	{
+		FScopeLock Lock(&FrameMutex);
+		if (LatestFrame.Num() == 0) return;
+		LocalCopy = LatestFrame;
+		LocalW = Width;
+		LocalH = Height;
+	}
+
+	if (LocalW != OutputTexture->GetSizeX() || LocalH != OutputTexture->GetSizeY())
+	{
+		OutputTexture = UTexture2D::CreateTransient(LocalW, LocalH, PF_B8G8R8A8);
+		OutputTexture->SRGB = false;
+		OutputTexture->Filter = TF_Nearest;
+		OutputTexture->UpdateResource();
+	}
+
+	const int32 ExpectedSize = LocalW * LocalH * 4;
+	if (LocalCopy.Num() != ExpectedSize) return;
+
+	FTexture2DMipMap& Mip = OutputTexture->GetPlatformData()->Mips[0];
+	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+	FMemory::Memcpy(TextureData, LocalCopy.GetData(), ExpectedSize);
+	Mip.BulkData.Unlock();
+	OutputTexture->UpdateResource();
+}
+
+void UStarflightViewportComponent::EnsureMID()
+{
+	if (!TargetMesh) return;
+	if (!DynamicMID)
+	{
+		UMaterialInterface* BaseMat = TargetMesh->GetMaterial(MaterialElementIndex);
+		if (BaseMat)
+		{
+			DynamicMID = TargetMesh->CreateAndSetMaterialInstanceDynamic(MaterialElementIndex);
+		}
 	}
 }

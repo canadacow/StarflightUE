@@ -7,6 +7,7 @@
 
 #include "GameFramework/PlayerController.h"
 #include "StarflightViewportComponent.h"
+#include "EngineUtils.h"
 #include "TimerManager.h"
 #include "Logging/LogMacros.h"
 
@@ -72,7 +73,17 @@ private:
 				return;
 			}
 			
-			UE_LOG(LogStarflightModule, Warning, TEXT("Found PlayerController, spawning HUD"));
+			// If any actor in this world has UStarflightViewportComponent, we will NOT spawn the HUD.
+			for (TActorIterator<AActor> It(World); It; ++It)
+			{
+				if (It->FindComponentByClass<UStarflightViewportComponent>())
+				{
+					UE_LOG(LogStarflightModule, Warning, TEXT("Detected UStarflightViewportComponent on %s - skipping HUD spawn"), *It->GetName());
+					return;
+				}
+			}
+			
+			UE_LOG(LogStarflightModule, Warning, TEXT("Found PlayerController, spawning Starflight HUD (no component detected)"));
 			
 			AHUD* ExistingHUD = PC->GetHUD();
 			if (ExistingHUD)
