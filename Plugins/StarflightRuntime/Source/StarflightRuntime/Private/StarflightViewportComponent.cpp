@@ -8,6 +8,7 @@
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Components/MeshComponent.h"
+ #include "EngineUtils.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightHUD, Log, All);
 
@@ -32,6 +33,9 @@ void AStarflightHUD::BeginPlay()
 
 	// Start the emulator when the HUD begins (when Play is pressed)
 	StartStarflight();
+
+    // Bind to a mesh that uses the Screen material so we can drive it at runtime
+    TryBindScreenMID();
 
 	UE_LOG(LogStarflightHUD, Warning, TEXT("Starflight HUD started and emulator launched"));
 }
@@ -115,6 +119,7 @@ void AStarflightHUD::UpdateTexture()
 	FMemory::Memcpy(TextureData, LocalCopy.GetData(), ExpectedSize);
 	Mip.BulkData.Unlock();
 	OutputTexture->UpdateResource();
+    PushTextureToMID();
 }
 
 void AStarflightHUD::FillTextureSolid(const FColor& Color)
@@ -158,6 +163,51 @@ void AStarflightHUD::FillTextureSolid(const FColor& Color)
 	OutputTexture->UpdateResource();
 }
 
+void AStarflightHUD::TryBindScreenMID()
+{
+    if (ScreenMID.IsValid())
+    {
+        return;
+    }
+
+    if (UWorld* World = GetWorld())
+    {
+        for (TActorIterator<AActor> It(World); It; ++It)
+        {
+            TArray<UMeshComponent*> Meshes;
+            It->GetComponents<UMeshComponent>(Meshes);
+            for (UMeshComponent* MC : Meshes)
+            {
+                const int32 Num = MC->GetNumMaterials();
+                for (int32 i = 0; i < Num; ++i)
+                {
+                    if (UMaterialInterface* Mat = MC->GetMaterial(i))
+                    {
+                        if (Mat->GetFName() == ScreenMaterialName)
+                        {
+                            UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Mat, this);
+                            MC->SetMaterial(i, MID);
+                            ScreenMID = MID;
+                            ScreenMesh = MC;
+                            ScreenElementIndex = i;
+                            PushTextureToMID();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void AStarflightHUD::PushTextureToMID()
+{
+    if (ScreenMID.IsValid() && OutputTexture)
+    {
+        ScreenMID->SetTextureParameterValue(TextureParamName, OutputTexture);
+    }
+}
+
 void AStarflightHUD::DrawHUD()
 {
 	Super::DrawHUD();
@@ -173,7 +223,7 @@ void AStarflightHUD::DrawHUD()
 		UpdateTexture();
 	}
 
-	if (OutputTexture && Canvas)
+    if (!ScreenMID.IsValid() && OutputTexture && Canvas)
 	{
 		// Draw texture fullscreen
 		FCanvasTileItem TileItem(FVector2D(0, 0), OutputTexture->GetResource(), FVector2D(Canvas->SizeX, Canvas->SizeY), FLinearColor::White);
@@ -182,129 +232,8 @@ void AStarflightHUD::DrawHUD()
 		
 		//UE_LOG(LogStarflightHUD, Log, TEXT("Drew texture %dx%d to canvas %dx%d"), OutputTexture->GetSizeX(), OutputTexture->GetSizeY(), (int)Canvas->SizeX, (int)Canvas->SizeY);
 	}
-	else
+    else if (!ScreenMID.IsValid())
 	{
 		UE_LOG(LogStarflightHUD, Warning, TEXT("DrawHUD called but OutputTexture=%p Canvas=%p"), OutputTexture, (void*)Canvas);
-	}
-}
-
-
-// ---------------- UStarflightViewportComponent ----------------
-
-UStarflightViewportComponent::UStarflightViewportComponent()
-{
-	PrimaryComponentTick.bCanEverTick = true;
-}
-
-void UStarflightViewportComponent::BeginPlay()
-{
-	Super::BeginPlay();
-
-	OutputTexture = UTexture2D::CreateTransient(Width, Height, PF_B8G8R8A8);
-	OutputTexture->SRGB = false;
-	OutputTexture->Filter = TF_Nearest;
-	OutputTexture->UpdateResource();
-
-	// Auto-pick first mesh on owner if not assigned
-	if (!TargetMesh)
-	{
-		TargetMesh = GetOwner() ? GetOwner()->FindComponentByClass<UMeshComponent>() : nullptr;
-	}
-
-	EnsureMID();
-
-	SetFrameSink([this](const uint8* BGRA, int W, int H, int Pitch)
-	{
-		OnFrame(BGRA, W, H, Pitch);
-	});
-
-	StartStarflight();
-}
-
-void UStarflightViewportComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
-{
-	Super::EndPlay(EndPlayReason);
-
-	StopStarflight();
-	SetFrameSink(nullptr);
-}
-
-void UStarflightViewportComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
-{
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	UpdateTexture();
-	EnsureMID();
-	if (DynamicMID && OutputTexture)
-	{
-		DynamicMID->SetTextureParameterValue(TextureParameterName, OutputTexture);
-	}
-}
-
-void UStarflightViewportComponent::OnFrame(const uint8* BGRA, int W, int H, int Pitch)
-{
-	FScopeLock Lock(&FrameMutex);
-	Width = W;
-	Height = H;
-	LatestPitch = Pitch;
-	LatestFrame.SetNum(W * H * 4);
-	if (Pitch == W * 4)
-	{
-		FMemory::Memcpy(LatestFrame.GetData(), BGRA, W * H * 4);
-	}
-	else
-	{
-		for (int y = 0; y < H; ++y)
-		{
-			FMemory::Memcpy(
-				LatestFrame.GetData() + y * W * 4,
-				BGRA + y * Pitch,
-				W * 4
-			);
-		}
-	}
-}
-
-void UStarflightViewportComponent::UpdateTexture()
-{
-	if (!OutputTexture || !OutputTexture->IsValidLowLevel()) return;
-
-	TArray<uint8> LocalCopy;
-	int32 LocalW, LocalH;
-	{
-		FScopeLock Lock(&FrameMutex);
-		if (LatestFrame.Num() == 0) return;
-		LocalCopy = LatestFrame;
-		LocalW = Width;
-		LocalH = Height;
-	}
-
-	if (LocalW != OutputTexture->GetSizeX() || LocalH != OutputTexture->GetSizeY())
-	{
-		OutputTexture = UTexture2D::CreateTransient(LocalW, LocalH, PF_B8G8R8A8);
-		OutputTexture->SRGB = false;
-		OutputTexture->Filter = TF_Nearest;
-		OutputTexture->UpdateResource();
-	}
-
-	const int32 ExpectedSize = LocalW * LocalH * 4;
-	if (LocalCopy.Num() != ExpectedSize) return;
-
-	FTexture2DMipMap& Mip = OutputTexture->GetPlatformData()->Mips[0];
-	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
-	FMemory::Memcpy(TextureData, LocalCopy.GetData(), ExpectedSize);
-	Mip.BulkData.Unlock();
-	OutputTexture->UpdateResource();
-}
-
-void UStarflightViewportComponent::EnsureMID()
-{
-	if (!TargetMesh) return;
-	if (!DynamicMID)
-	{
-		UMaterialInterface* BaseMat = TargetMesh->GetMaterial(MaterialElementIndex);
-		if (BaseMat)
-		{
-			DynamicMID = TargetMesh->CreateAndSetMaterialInstanceDynamic(MaterialElementIndex);
-		}
 	}
 }
