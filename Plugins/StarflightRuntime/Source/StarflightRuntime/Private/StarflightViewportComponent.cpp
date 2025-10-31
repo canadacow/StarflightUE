@@ -9,6 +9,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Components/MeshComponent.h"
  #include "EngineUtils.h"
+ #include "Framework/Application/SlateApplication.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightHUD, Log, All);
 
@@ -48,6 +49,22 @@ void AStarflightHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	StopStarflight();
 	
 	SetFrameSink(nullptr);
+
+    // Restore editor-friendly input focus
+    if (UWorld* World = GetWorld())
+    {
+        if (APlayerController* PC = World->GetFirstPlayerController())
+        {
+            FInputModeUIOnly Mode;
+            PC->SetInputMode(Mode);
+            PC->bShowMouseCursor = true;
+        }
+    }
+    if (FSlateApplication::IsInitialized())
+    {
+        FSlateApplication::Get().ClearAllUserFocus(EFocusCause::SetDirectly);
+        FSlateApplication::Get().ReleaseAllPointerCapture();
+    }
 }
 
 void AStarflightHUD::OnFrame(const uint8* BGRA, int W, int H, int Pitch)

@@ -5,16 +5,16 @@
 #include "GameFramework/GameModeBase.h"
 #include "StarflightUE.generated.h"
 
-UCLASS()
-class AStarflightPawn : public APawn
+UCLASS(BlueprintType, Blueprintable)
+class STARFLIGHTUE_API AStarflightPawn : public APawn
 {
     GENERATED_BODY()
 public:
     AStarflightPawn();
 };
 
-UCLASS()
-class AStarflightGameMode : public AGameModeBase
+UCLASS(BlueprintType, Blueprintable)
+class STARFLIGHTUE_API AStarflightGameMode : public AGameModeBase
 {
     GENERATED_BODY()
 public:

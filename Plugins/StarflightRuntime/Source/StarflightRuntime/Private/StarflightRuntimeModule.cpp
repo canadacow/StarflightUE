@@ -2,8 +2,6 @@
 #include "StarflightBridge.h"
 #include "StarflightAssets.h"
 #include "Engine/World.h"
-#include "Framework/Application/SlateApplication.h"
-#include "StarflightInputPreprocessor.h"
 
 #include "GameFramework/PlayerController.h"
 #include "StarflightViewportComponent.h"
@@ -24,14 +22,9 @@ public:
         WorldInitHandle = FWorldDelegates::OnPostWorldInitialization.AddRaw(this, &FStarflightRuntimeModule::OnWorldInit);
 	}
 
-	virtual void ShutdownModule() override
-	{
-        if (InputPreprocessor.IsValid() && FSlateApplication::IsInitialized())
-        {
-            FSlateApplication::Get().UnregisterInputPreProcessor(InputPreprocessor);
-            InputPreprocessor.Reset();
-        }
-		if (WorldInitHandle.IsValid())
+    virtual void ShutdownModule() override
+    {
+        if (WorldInitHandle.IsValid())
 		{
 			FWorldDelegates::OnPostWorldInitialization.Remove(WorldInitHandle);
 			WorldInitHandle.Reset();
@@ -45,7 +38,6 @@ public:
 
 private:
 	FDelegateHandle WorldInitHandle;
-    TSharedPtr<IInputProcessor> InputPreprocessor;
 
 	void OnWorldInit(UWorld* World, const UWorld::InitializationValues)
 	{
@@ -54,12 +46,7 @@ private:
 
         UE_LOG(LogStarflightModule, Warning, TEXT("OnWorldInit for world: %s"), *World->GetName());
 
-        // Register input preprocessor only for Game/PIE
-        if (FSlateApplication::IsInitialized() && !InputPreprocessor.IsValid())
-        {
-            InputPreprocessor = MakeShared<FStarflightInputPreprocessor>();
-            FSlateApplication::Get().RegisterInputPreProcessor(InputPreprocessor);
-        }
+        // Input is handled by AStarflightPlayerController during play; no global preprocessor
 		
 		// Delay spawn until player controller exists
 		FTimerHandle TimerHandle;
