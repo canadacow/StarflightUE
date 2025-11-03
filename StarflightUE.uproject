@@ -3,7 +3,13 @@
   "EngineAssociation": "5.6",
   "Category": "",
   "Description": "",
-  "Modules": [],
+  "Modules": [
+    {
+      "Name": "StarflightUE",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
   "Plugins": [
     {
       "Name": "ModelingToolsEditorMode",

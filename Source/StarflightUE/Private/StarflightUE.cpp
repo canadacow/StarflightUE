@@ -1,6 +1,8 @@
 #include "StarflightUE.h"
 #include "Modules/ModuleManager.h"
 #include "StarflightPlayerController.h"
+#include "EngineUtils.h"
+#include "StarflightPlayerStart.h"
 
 // Primary module
 IMPLEMENT_PRIMARY_GAME_MODULE(FDefaultGameModuleImpl, StarflightUE, "StarflightUE");
@@ -31,6 +33,18 @@ void AStarflightGameMode::BeginPlay()
         PC->SetIgnoreLookInput(false);
         PC->SetIgnoreMoveInput(false);
     }
+}
+
+AActor* AStarflightGameMode::ChoosePlayerStart_Implementation(AController* Player)
+{
+    if (UWorld* World = GetWorld())
+    {
+        for (TActorIterator<AStarflightPlayerStart> It(World); It; ++It)
+        {
+            return *It;
+        }
+    }
+    return Super::ChoosePlayerStart_Implementation(Player);
 }
 
 

@@ -20,4 +20,6 @@ class STARFLIGHTUE_API AStarflightGameMode : public AGameModeBase
 public:
     AStarflightGameMode();
     virtual void BeginPlay() override;
+
+    virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
 };
