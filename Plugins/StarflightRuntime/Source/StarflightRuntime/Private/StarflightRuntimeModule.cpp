@@ -1,3 +1,4 @@
+#include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 #include "StarflightBridge.h"
 #include "StarflightAssets.h"

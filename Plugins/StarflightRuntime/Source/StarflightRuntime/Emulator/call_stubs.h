@@ -243,7 +243,8 @@ enum class Takeoff { Normal };
 enum class Holding { Orbit };
 
 // Missing constants
-static const uint8_t CGAToEGA[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+//static const int CGAToEGA[16] = {0, 2, 1, 9, 4, 8, 5, 11, 6, 10, 7, 3, 6, 14, 12, 15};
+static const int CGAToEGA[16] = {0, 2, 1, 9, 4, 8, 5, 11, 6, 10, 7, 3, 6, 14, 12, 15};
 
 // Missing functions
 inline uint16_t Peek16(int offset) { return 0; }

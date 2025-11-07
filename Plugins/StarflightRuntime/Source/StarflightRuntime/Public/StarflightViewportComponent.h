@@ -24,7 +24,7 @@ public:
 	FName TextureParamName = TEXT("Tex");
 
 	UPROPERTY(EditAnywhere, Category = "Starflight|Screen")
-	FName ScreenMaterialName = TEXT("Screen");
+	FName ScreenMaterialName = TEXT("Screen_WithPlugin");
 
 	virtual void DrawHUD() override;
 	virtual void BeginPlay() override;
