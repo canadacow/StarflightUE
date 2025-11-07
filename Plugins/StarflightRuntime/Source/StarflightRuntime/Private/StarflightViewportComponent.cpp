@@ -6,6 +6,8 @@
 #include "StarflightBridge.h"
 #include "Engine/Canvas.h"
 #include "Engine/Texture2D.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "CanvasTypes.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Components/MeshComponent.h"
  #include "EngineUtils.h"
@@ -22,10 +24,19 @@ void AStarflightHUD::BeginPlay()
 {
 	Super::BeginPlay();
 
-	OutputTexture = UTexture2D::CreateTransient(Width, Height, PF_B8G8R8A8);
-	OutputTexture->SRGB = false;
-	OutputTexture->Filter = TF_Nearest;
-	OutputTexture->UpdateResource();
+    // Create 640x400 upscaled RT (with mips) and an intermediate texture for CPU blit
+    UpscaledRenderTarget = NewObject<UTextureRenderTarget2D>(this);
+    UpscaledRenderTarget->ClearColor = FLinearColor::Black;
+    UpscaledRenderTarget->bAutoGenerateMips = true;
+    UpscaledRenderTarget->bCanCreateUAV = false;
+    UpscaledRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+    UpscaledRenderTarget->InitAutoFormat(640, 400);
+    UpscaledRenderTarget->UpdateResourceImmediate(true);
+
+    UpscaledIntermediateTexture = UTexture2D::CreateTransient(640, 400, PF_B8G8R8A8);
+    UpscaledIntermediateTexture->SRGB = true;
+    UpscaledIntermediateTexture->Filter = TF_Trilinear;
+    UpscaledIntermediateTexture->UpdateResource();
 
 	SetFrameSink([this](const uint8* BGRA, int W, int H, int Pitch)
 	{
@@ -98,10 +109,10 @@ void AStarflightHUD::OnFrame(const uint8* BGRA, int W, int H, int Pitch)
 
 void AStarflightHUD::UpdateTexture()
 {
-	if (!OutputTexture || !OutputTexture->IsValidLowLevel()) return;
+    if (!UpscaledIntermediateTexture || !UpscaledRenderTarget) return;
 
 	TArray<uint8> LocalCopy;
-	int32 LocalW, LocalH;
+    int32 LocalW, LocalH;
 	{
 		FScopeLock Lock(&FrameMutex);
 		if (LatestFrame.Num() == 0) return;
@@ -110,50 +121,85 @@ void AStarflightHUD::UpdateTexture()
 		LocalH = Height;
 	}
 
-	// Recreate texture if size changed
-	if (LocalW != OutputTexture->GetSizeX() || LocalH != OutputTexture->GetSizeY())
-	{
-		UE_LOG(LogStarflightHUD, Warning, TEXT("Recreating texture: %dx%d -> %dx%d"), 
-			OutputTexture->GetSizeX(), OutputTexture->GetSizeY(), LocalW, LocalH);
-		OutputTexture = UTexture2D::CreateTransient(LocalW, LocalH, PF_B8G8R8A8);
-		OutputTexture->SRGB = false;
-		OutputTexture->Filter = TF_Nearest;
-		OutputTexture->UpdateResource();
-	}
+    // CPU upscale into a 640x400 BGRA buffer with black scanlines
+    const int32 DstW = 640;
+    const int32 DstH = 400;
+    TArray<uint8> Upscaled;
+    Upscaled.SetNumZeroed(DstW * DstH * 4);
 
-	// Validate data size
-	const int32 ExpectedSize = LocalW * LocalH * 4;
-	if (LocalCopy.Num() != ExpectedSize)
-	{
-		UE_LOG(LogStarflightHUD, Error, TEXT("Data size mismatch: %d bytes for %dx%d (expected %d)"), 
-			LocalCopy.Num(), LocalW, LocalH, ExpectedSize);
-		return;
-	}
+    // Compute horizontal integer scale to cover 640 exactly for common widths
+    // 160 -> 4x, 320 -> 2x, 640 -> 1x
+    const int32 ScaleX = FMath::Max(1, DstW / FMath::Max(1, LocalW));
 
-	// Update texture using platform data (safer than UpdateTextureRegions)
-	FTexture2DMipMap& Mip = OutputTexture->GetPlatformData()->Mips[0];
-	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
-	FMemory::Memcpy(TextureData, LocalCopy.GetData(), ExpectedSize);
-	Mip.BulkData.Unlock();
-	OutputTexture->UpdateResource();
+    for (int32 sy = 0; sy < LocalH; ++sy)
+    {
+        const int32 dy = sy * 2; // even rows
+        const uint8* SrcRow = LocalCopy.GetData() + sy * LocalW * 4;
+        uint8* DstRow0 = Upscaled.GetData() + dy * DstW * 4;
+        uint8* DstRow1 = Upscaled.GetData() + (dy + 1) * DstW * 4; // black line
+
+        for (int32 sx = 0; sx < LocalW; ++sx)
+        {
+            const uint8* SrcPx = SrcRow + sx * 4; // BGRA
+            const int32 dx0 = sx * ScaleX;
+            const int32 dx1 = FMath::Min(dx0 + ScaleX - 1, DstW - 1);
+
+            // write one or two pixels horizontally
+            for (int32 dx = dx0; dx <= dx1; ++dx)
+            {
+                uint8* DstPx0 = DstRow0 + dx * 4;
+                DstPx0[0] = SrcPx[0];
+                DstPx0[1] = SrcPx[1];
+                DstPx0[2] = SrcPx[2];
+                DstPx0[3] = 255;
+
+                uint8* DstPx1 = DstRow1 + dx * 4;
+                DstPx1[0] = 0;
+                DstPx1[1] = 0;
+                DstPx1[2] = 0;
+                DstPx1[3] = 255;
+            }
+        }
+    }
+
+    // Upload to intermediate texture
+    {
+        FTexture2DMipMap& Mip = UpscaledIntermediateTexture->GetPlatformData()->Mips[0];
+        void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+        FMemory::Memcpy(TextureData, Upscaled.GetData(), Upscaled.Num());
+        Mip.BulkData.Unlock();
+        UpscaledIntermediateTexture->UpdateResource();
+    }
+
+    // Blit intermediate texture into the 640x400 RT (1:1) and let RT autogenerate mips
+    if (FTextureRenderTargetResource* RTRes = UpscaledRenderTarget->GameThread_GetRenderTargetResource())
+    {
+        FCanvas RTCanvas(RTRes, nullptr, GetWorld(), GetWorld()->GetFeatureLevel());
+        FCanvasTileItem Tile(FVector2D(0, 0), UpscaledIntermediateTexture->GetResource(), FVector2D(640.0f, 400.0f), FLinearColor::White);
+        Tile.BlendMode = SE_BLEND_Opaque;
+        RTCanvas.DrawItem(Tile);
+        RTCanvas.Flush_GameThread();
+    }
+
     PushTextureToMID();
 }
 
 void AStarflightHUD::FillTextureSolid(const FColor& Color)
 {
-	if (!OutputTexture || !OutputTexture->IsValidLowLevel()) return;
+    if (!UpscaledIntermediateTexture || !UpscaledRenderTarget) return;
 
 	// Ensure texture matches desired size
-	if (Width != OutputTexture->GetSizeX() || Height != OutputTexture->GetSizeY())
-	{
-		OutputTexture = UTexture2D::CreateTransient(Width, Height, PF_B8G8R8A8);
-		OutputTexture->SRGB = false;
-		OutputTexture->Filter = TF_Nearest;
-		OutputTexture->UpdateResource();
-	}
+    // Ensure intermediate texture is 640x400
+    if (UpscaledIntermediateTexture->GetSizeX() != 640 || UpscaledIntermediateTexture->GetSizeY() != 400)
+    {
+        UpscaledIntermediateTexture = UTexture2D::CreateTransient(640, 400, PF_B8G8R8A8);
+        UpscaledIntermediateTexture->SRGB = true;
+        UpscaledIntermediateTexture->Filter = TF_Trilinear;
+        UpscaledIntermediateTexture->UpdateResource();
+    }
 
-	const int32 LocalW = OutputTexture->GetSizeX();
-	const int32 LocalH = OutputTexture->GetSizeY();
+    const int32 LocalW = UpscaledIntermediateTexture->GetSizeX();
+    const int32 LocalH = UpscaledIntermediateTexture->GetSizeY();
 	const int32 NumPixels = LocalW * LocalH;
 	const int32 NumBytes = NumPixels * 4;
 
@@ -173,11 +219,20 @@ void AStarflightHUD::FillTextureSolid(const FColor& Color)
 		Bytes[o + 3] = A;
 	}
 
-	FTexture2DMipMap& Mip = OutputTexture->GetPlatformData()->Mips[0];
+    FTexture2DMipMap& Mip = UpscaledIntermediateTexture->GetPlatformData()->Mips[0];
 	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
 	FMemory::Memcpy(TextureData, Bytes.GetData(), NumBytes);
 	Mip.BulkData.Unlock();
-	OutputTexture->UpdateResource();
+    UpscaledIntermediateTexture->UpdateResource();
+
+    if (FTextureRenderTargetResource* RTRes = UpscaledRenderTarget->GameThread_GetRenderTargetResource())
+    {
+        FCanvas RTCanvas(RTRes, nullptr, GetWorld(), GetWorld()->GetFeatureLevel());
+        FCanvasTileItem Tile(FVector2D(0, 0), UpscaledIntermediateTexture->GetResource(), FVector2D(640.0f, 400.0f), FLinearColor::White);
+        Tile.BlendMode = SE_BLEND_Opaque;
+        RTCanvas.DrawItem(Tile);
+        RTCanvas.Flush_GameThread();
+    }
 }
 
 void AStarflightHUD::TryBindScreenMID()
@@ -219,9 +274,9 @@ void AStarflightHUD::TryBindScreenMID()
 
 void AStarflightHUD::PushTextureToMID()
 {
-    if (ScreenMID.IsValid() && OutputTexture)
+    if (ScreenMID.IsValid() && UpscaledRenderTarget)
     {
-        ScreenMID->SetTextureParameterValue(TextureParamName, OutputTexture);
+        ScreenMID->SetTextureParameterValue(TextureParamName, UpscaledRenderTarget);
     }
 }
 
@@ -240,17 +295,17 @@ void AStarflightHUD::DrawHUD()
 		UpdateTexture();
 	}
 
-    if (!ScreenMID.IsValid() && OutputTexture && Canvas)
+    if (!ScreenMID.IsValid() && UpscaledRenderTarget && Canvas)
 	{
 		// Draw texture fullscreen
-		FCanvasTileItem TileItem(FVector2D(0, 0), OutputTexture->GetResource(), FVector2D(Canvas->SizeX, Canvas->SizeY), FLinearColor::White);
+        FCanvasTileItem TileItem(FVector2D(0, 0), UpscaledRenderTarget->GetResource(), FVector2D(Canvas->SizeX, Canvas->SizeY), FLinearColor::White);
 		TileItem.BlendMode = SE_BLEND_Opaque;
 		Canvas->DrawItem(TileItem);
 		
-		//UE_LOG(LogStarflightHUD, Log, TEXT("Drew texture %dx%d to canvas %dx%d"), OutputTexture->GetSizeX(), OutputTexture->GetSizeY(), (int)Canvas->SizeX, (int)Canvas->SizeY);
+        //UE_LOG(LogStarflightHUD, Log, TEXT("Drew RT %dx%d to canvas %dx%d"), UpscaledRenderTarget->SizeX, UpscaledRenderTarget->SizeY, (int)Canvas->SizeX, (int)Canvas->SizeY);
 	}
     else if (!ScreenMID.IsValid())
 	{
-		UE_LOG(LogStarflightHUD, Warning, TEXT("DrawHUD called but OutputTexture=%p Canvas=%p"), OutputTexture, (void*)Canvas);
+        UE_LOG(LogStarflightHUD, Warning, TEXT("DrawHUD called but UpscaledRenderTarget=%p Canvas=%p"), UpscaledRenderTarget, (void*)Canvas);
 	}
 }

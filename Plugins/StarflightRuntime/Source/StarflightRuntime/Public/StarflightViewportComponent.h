@@ -7,6 +7,7 @@
 
 class UMaterialInstanceDynamic;
 class UMeshComponent;
+class UTextureRenderTarget2D;
 
 UCLASS()
 class STARFLIGHTRUNTIME_API AStarflightHUD : public AHUD
@@ -16,8 +17,8 @@ class STARFLIGHTRUNTIME_API AStarflightHUD : public AHUD
 public:
 	AStarflightHUD();
 
-	UPROPERTY(BlueprintReadOnly, Category = "Starflight")
-	UTexture2D* OutputTexture;
+    UPROPERTY(BlueprintReadOnly, Category = "Starflight")
+    UTextureRenderTarget2D* UpscaledRenderTarget;
 
 	// Material parameter and target material name used for the in-world screen
 	UPROPERTY(EditAnywhere, Category = "Starflight|Screen")
@@ -44,9 +45,12 @@ private:
 	TWeakObjectPtr<UMeshComponent> ScreenMesh;
 	int32 ScreenElementIndex = 0;
 
-	void OnFrame(const uint8* BGRA, int W, int H, int Pitch);
-	void UpdateTexture();
+    void OnFrame(const uint8* BGRA, int W, int H, int Pitch);
+    void UpdateTexture();
 	void FillTextureSolid(const FColor& Color);
 	void TryBindScreenMID();
 	void PushTextureToMID();
+
+    // Intermediate 640x400 CPU-upscaled texture used for blitting to the RT
+    UTexture2D* UpscaledIntermediateTexture = nullptr;
 };
