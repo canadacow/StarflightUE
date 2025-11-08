@@ -8,6 +8,18 @@
 #include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "CanvasTypes.h"
+#include "RHI.h"
+#include "RHICommandList.h"
+#include "RenderingThread.h"
+#include "GenerateMips.h"
+#include "RenderGraphBuilder.h"
+#include "RenderGraphUtils.h"
+#include "IImageWrapperModule.h"
+#include "IImageWrapper.h"
+#include "Modules/ModuleManager.h"
+#include "Misc/FileHelper.h"
+#include "HAL/PlatformFilemanager.h"
+#include "Misc/Paths.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Components/MeshComponent.h"
  #include "EngineUtils.h"
@@ -29,7 +41,7 @@ void AStarflightHUD::BeginPlay()
     UpscaledRenderTarget->ClearColor = FLinearColor::Black;
     UpscaledRenderTarget->bAutoGenerateMips = true;
     UpscaledRenderTarget->bCanCreateUAV = false;
-    UpscaledRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+    UpscaledRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8_SRGB;
     UpscaledRenderTarget->InitAutoFormat(640, 400);
     UpscaledRenderTarget->UpdateResourceImmediate(true);
 
@@ -109,7 +121,7 @@ void AStarflightHUD::OnFrame(const uint8* BGRA, int W, int H, int Pitch)
 
 void AStarflightHUD::UpdateTexture()
 {
-    if (!UpscaledIntermediateTexture || !UpscaledRenderTarget) return;
+    if (!UpscaledRenderTarget) return;
 
 	TArray<uint8> LocalCopy;
     int32 LocalW, LocalH;
@@ -154,31 +166,79 @@ void AStarflightHUD::UpdateTexture()
                 DstPx0[3] = 255;
 
                 uint8* DstPx1 = DstRow1 + dx * 4;
+#if 1
                 DstPx1[0] = 0;
                 DstPx1[1] = 0;
                 DstPx1[2] = 0;
                 DstPx1[3] = 255;
+#else
+                DstPx1[0] = SrcPx[0];
+                DstPx1[1] = SrcPx[1];
+                DstPx1[2] = SrcPx[2];
+                DstPx0[3] = 255;
+#endif
             }
         }
     }
 
-    // Upload to intermediate texture
-    {
-        FTexture2DMipMap& Mip = UpscaledIntermediateTexture->GetPlatformData()->Mips[0];
-        void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
-        FMemory::Memcpy(TextureData, Upscaled.GetData(), Upscaled.Num());
-        Mip.BulkData.Unlock();
-        UpscaledIntermediateTexture->UpdateResource();
-    }
+#if 0
+	// Dump images here
+	{
+		static bool bDumpDirReady = false;
+		static FString DumpDir;
+		if (!bDumpDirReady)
+		{
+			DumpDir = FPaths::Combine(FPaths::ProjectDir(), TEXT("dump"));
+			IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+			PlatformFile.CreateDirectoryTree(*DumpDir);
+			bDumpDirReady = true;
+		}
 
-    // Blit intermediate texture into the 640x400 RT (1:1) and let RT autogenerate mips
+		IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+		TSharedPtr<IImageWrapper> PngWriter = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+		if (PngWriter.IsValid())
+		{
+			const int32 SrcW = DstW;
+			const int32 SrcH = DstH;
+			PngWriter->SetRaw(Upscaled.GetData(), Upscaled.Num(), SrcW, SrcH, ERGBFormat::BGRA, 8);
+
+			const TArray64<uint8>& Compressed64 = PngWriter->GetCompressed(0);
+			TArray<uint8> Compressed;
+			Compressed.Append(Compressed64.GetData(), static_cast<int32>(Compressed64.Num()));
+
+			const FString FileName = FString::Printf(TEXT("image_%05d.png"), static_cast<int32>(DumpCounter++));
+			const FString FilePath = FPaths::Combine(DumpDir, FileName);
+			FFileHelper::SaveArrayToFile(Compressed, *FilePath);
+		}
+	}
+#endif
+
+
+    // Upload CPU buffer directly to the RT on the render thread and generate mips
     if (FTextureRenderTargetResource* RTRes = UpscaledRenderTarget->GameThread_GetRenderTargetResource())
     {
-        FCanvas RTCanvas(RTRes, nullptr, GetWorld(), GetWorld()->GetFeatureLevel());
-        FCanvasTileItem Tile(FVector2D(0, 0), UpscaledIntermediateTexture->GetResource(), FVector2D(640.0f, 400.0f), FLinearColor::White);
-        Tile.BlendMode = SE_BLEND_Opaque;
-        RTCanvas.DrawItem(Tile);
-        RTCanvas.Flush_GameThread();
+        if (FRHITexture* RHITexture = RTRes->GetRenderTargetTexture())
+        {
+            TArray<uint8> BufferCopy = MoveTemp(Upscaled);
+            const ERHIFeatureLevel::Type FeatureLevel = GetWorld()->GetFeatureLevel();
+            ENQUEUE_RENDER_COMMAND(UpdateCRTTarget)(
+                [RHITexture, BufferCopy = MoveTemp(BufferCopy), FeatureLevel](FRHICommandListImmediate& RHICmdList) mutable
+                {
+                    if (FRHITexture2D* Tex2D = RHITexture->GetTexture2D())
+                    {
+                        const uint32 SrcPitch = 640u * 4u;
+                        FUpdateTextureRegion2D Region(0, 0, 0, 0, 640u, 400u);
+                        RHICmdList.UpdateTexture2D(Tex2D, 0, Region, SrcPitch, BufferCopy.GetData());
+
+                        FRDGBuilder GraphBuilder(RHICmdList);
+                        FRDGTextureRef RDGTex = GraphBuilder.RegisterExternalTexture(CreateRenderTarget(RHITexture, TEXT("CRT_RT")));
+                        FGenerateMipsParams Params;
+                        FGenerateMips::Execute(GraphBuilder, FeatureLevel, RDGTex, Params, EGenerateMipsPass::Compute);
+                        GraphBuilder.Execute();
+                    }
+                }
+            );
+        }
     }
 
     PushTextureToMID();
@@ -188,18 +248,8 @@ void AStarflightHUD::FillTextureSolid(const FColor& Color)
 {
     if (!UpscaledIntermediateTexture || !UpscaledRenderTarget) return;
 
-	// Ensure texture matches desired size
-    // Ensure intermediate texture is 640x400
-    if (UpscaledIntermediateTexture->GetSizeX() != 640 || UpscaledIntermediateTexture->GetSizeY() != 400)
-    {
-        UpscaledIntermediateTexture = UTexture2D::CreateTransient(640, 400, PF_B8G8R8A8);
-        UpscaledIntermediateTexture->SRGB = true;
-        UpscaledIntermediateTexture->Filter = TF_Trilinear;
-        UpscaledIntermediateTexture->UpdateResource();
-    }
-
-    const int32 LocalW = UpscaledIntermediateTexture->GetSizeX();
-    const int32 LocalH = UpscaledIntermediateTexture->GetSizeY();
+    const int32 LocalW = 640;
+    const int32 LocalH = 400;
 	const int32 NumPixels = LocalW * LocalH;
 	const int32 NumBytes = NumPixels * 4;
 
@@ -219,19 +269,28 @@ void AStarflightHUD::FillTextureSolid(const FColor& Color)
 		Bytes[o + 3] = A;
 	}
 
-    FTexture2DMipMap& Mip = UpscaledIntermediateTexture->GetPlatformData()->Mips[0];
-	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
-	FMemory::Memcpy(TextureData, Bytes.GetData(), NumBytes);
-	Mip.BulkData.Unlock();
-    UpscaledIntermediateTexture->UpdateResource();
-
     if (FTextureRenderTargetResource* RTRes = UpscaledRenderTarget->GameThread_GetRenderTargetResource())
     {
-        FCanvas RTCanvas(RTRes, nullptr, GetWorld(), GetWorld()->GetFeatureLevel());
-        FCanvasTileItem Tile(FVector2D(0, 0), UpscaledIntermediateTexture->GetResource(), FVector2D(640.0f, 400.0f), FLinearColor::White);
-        Tile.BlendMode = SE_BLEND_Opaque;
-        RTCanvas.DrawItem(Tile);
-        RTCanvas.Flush_GameThread();
+        FRHITexture* RHITexture = RTRes->GetRenderTargetTexture();
+        TArray<uint8> BufferCopy = MoveTemp(Bytes);
+        const ERHIFeatureLevel::Type FeatureLevel = GetWorld()->GetFeatureLevel();
+        ENQUEUE_RENDER_COMMAND(UpdateCRTTargetSolid)(
+            [RHITexture, BufferCopy = MoveTemp(BufferCopy), FeatureLevel](FRHICommandListImmediate& RHICmdList) mutable
+            {
+                if (FRHITexture2D* Tex2D = RHITexture->GetTexture2D())
+                {
+                    const uint32 SrcPitch = 640u * 4u;
+                    FUpdateTextureRegion2D Region(0, 0, 0, 0, 640u, 400u);
+                    RHICmdList.UpdateTexture2D(Tex2D, 0, Region, SrcPitch, BufferCopy.GetData());
+
+                    FRDGBuilder GraphBuilder(RHICmdList);
+                    FRDGTextureRef RDGTex = GraphBuilder.RegisterExternalTexture(CreateRenderTarget(RHITexture, TEXT("CRT_RT")));
+                    FGenerateMipsParams Params;
+                    FGenerateMips::Execute(GraphBuilder, FeatureLevel, RDGTex, Params, EGenerateMipsPass::Compute);
+                    GraphBuilder.Execute();
+                }
+            }
+        );
     }
 }
 

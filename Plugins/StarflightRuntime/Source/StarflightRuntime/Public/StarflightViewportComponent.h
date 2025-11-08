@@ -39,6 +39,7 @@ private:
 	int32 Height = 360;
 	bool bDebugAlternating = false;
 	uint64 FrameCounter = 0;
+	uint32 DumpCounter = 0;
 
 	// Runtime binding to a mesh using the Screen material
 	TWeakObjectPtr<UMaterialInstanceDynamic> ScreenMID;
