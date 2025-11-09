@@ -122,6 +122,13 @@ void UStarflightInputComponent::SetInputEnabled(bool bEnabled)
                     OnAnyKeyReleased(Key);
                 });
                 BoundInputComponent->KeyBindings.Add(ReleasedBinding);
+
+                FInputKeyBinding RepeatBinding(Key, IE_Repeat);
+                RepeatBinding.KeyDelegate.GetDelegateForManualSet().BindLambda([this, Key]()
+                {
+                    OnAnyKeyPressed(Key);
+                });
+                BoundInputComponent->KeyBindings.Add(RepeatBinding);
             }
             
             UE_LOG(LogStarflightInputComponent, Log, TEXT("Input enabled and bound %d keys"), KeysToBind.Num());

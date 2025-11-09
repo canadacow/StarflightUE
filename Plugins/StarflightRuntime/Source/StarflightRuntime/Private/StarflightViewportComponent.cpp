@@ -166,7 +166,7 @@ void AStarflightHUD::UpdateTexture()
                 DstPx0[3] = 255;
 
                 uint8* DstPx1 = DstRow1 + dx * 4;
-#if 1
+#if 0
                 DstPx1[0] = 0;
                 DstPx1[1] = 0;
                 DstPx1[2] = 0;
