@@ -27,6 +27,24 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightHUD, Log, All);
 
+// -----------------------------------------------------------------------------
+// Output configuration (override via Build.cs or compiler defines if desired)
+// - SF_OUTPUT_WIDTH:  output width in pixels (default 640)
+// - SF_OUTPUT_HEIGHT: output height in pixels: 200 (no scanlines) or 400 (scanlines/doubling)
+// - SF_SCANLINE_BLACK: when height == 400, 1 = black scanlines, 0 = line-doubling
+// -----------------------------------------------------------------------------
+#ifndef SF_OUTPUT_WIDTH
+#define SF_OUTPUT_WIDTH 640
+#endif
+#ifndef SF_OUTPUT_HEIGHT
+#define SF_OUTPUT_HEIGHT 200
+#endif
+#ifndef SF_SCANLINE_BLACK
+#define SF_SCANLINE_BLACK 0
+#endif
+static_assert(SF_OUTPUT_WIDTH == 640, "This HUD assumes 640px output width.");
+static_assert(SF_OUTPUT_HEIGHT == 200 || SF_OUTPUT_HEIGHT == 400, "SF_OUTPUT_HEIGHT must be 200 or 400.");
+
 AStarflightHUD::AStarflightHUD()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -36,16 +54,16 @@ void AStarflightHUD::BeginPlay()
 {
 	Super::BeginPlay();
 
-    // Create 640x400 upscaled RT (with mips) and an intermediate texture for CPU blit
+    // Create upscaled RT (with mips) and an intermediate texture for CPU blit
     UpscaledRenderTarget = NewObject<UTextureRenderTarget2D>(this);
     UpscaledRenderTarget->ClearColor = FLinearColor::Black;
     UpscaledRenderTarget->bAutoGenerateMips = true;
     UpscaledRenderTarget->bCanCreateUAV = false;
     UpscaledRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8_SRGB;
-    UpscaledRenderTarget->InitAutoFormat(640, 400);
+    UpscaledRenderTarget->InitAutoFormat(SF_OUTPUT_WIDTH, SF_OUTPUT_HEIGHT);
     UpscaledRenderTarget->UpdateResourceImmediate(true);
 
-    UpscaledIntermediateTexture = UTexture2D::CreateTransient(640, 400, PF_B8G8R8A8);
+    UpscaledIntermediateTexture = UTexture2D::CreateTransient(SF_OUTPUT_WIDTH, SF_OUTPUT_HEIGHT, PF_B8G8R8A8);
     UpscaledIntermediateTexture->SRGB = true;
     UpscaledIntermediateTexture->Filter = TF_Trilinear;
     UpscaledIntermediateTexture->UpdateResource();
@@ -133,9 +151,9 @@ void AStarflightHUD::UpdateTexture()
 		LocalH = Height;
 	}
 
-    // CPU upscale into a 640x400 BGRA buffer with black scanlines
-    const int32 DstW = 640;
-    const int32 DstH = 400;
+    // CPU format into a BGRA buffer as configured
+    const int32 DstW = SF_OUTPUT_WIDTH;
+    const int32 DstH = SF_OUTPUT_HEIGHT;
     TArray<uint8> Upscaled;
     Upscaled.SetNumZeroed(DstW * DstH * 4);
 
@@ -143,45 +161,97 @@ void AStarflightHUD::UpdateTexture()
     // 160 -> 4x, 320 -> 2x, 640 -> 1x
     const int32 ScaleX = FMath::Max(1, DstW / FMath::Max(1, LocalW));
 
-    for (int32 sy = 0; sy < LocalH; ++sy)
+    if (DstH == LocalH)
     {
-        const int32 dy = sy * 2; // even rows
-        const uint8* SrcRow = LocalCopy.GetData() + sy * LocalW * 4;
-        uint8* DstRow0 = Upscaled.GetData() + dy * DstW * 4;
-        uint8* DstRow1 = Upscaled.GetData() + (dy + 1) * DstW * 4; // black line
-
-        for (int32 sx = 0; sx < LocalW; ++sx)
+        // 640x200: single line per source row, horizontal integer scaling only
+        for (int32 sy = 0; sy < LocalH; ++sy)
         {
-            const uint8* SrcPx = SrcRow + sx * 4; // BGRA
-            const int32 dx0 = sx * ScaleX;
-            const int32 dx1 = FMath::Min(dx0 + ScaleX - 1, DstW - 1);
+            const uint8* SrcRow = LocalCopy.GetData() + sy * LocalW * 4;
+            uint8* DstRow = Upscaled.GetData() + sy * DstW * 4;
 
-            // write one or two pixels horizontally
-            for (int32 dx = dx0; dx <= dx1; ++dx)
+            for (int32 sx = 0; sx < LocalW; ++sx)
             {
-                uint8* DstPx0 = DstRow0 + dx * 4;
-                DstPx0[0] = SrcPx[0];
-                DstPx0[1] = SrcPx[1];
-                DstPx0[2] = SrcPx[2];
-                DstPx0[3] = 255;
+                const uint8* SrcPx = SrcRow + sx * 4; // BGRA
+                const int32 dx0 = sx * ScaleX;
+                const int32 dx1 = FMath::Min(dx0 + ScaleX - 1, DstW - 1);
+                for (int32 dx = dx0; dx <= dx1; ++dx)
+                {
+                    uint8* DstPx = DstRow + dx * 4;
+                    DstPx[0] = SrcPx[0];
+                    DstPx[1] = SrcPx[1];
+                    DstPx[2] = SrcPx[2];
+                    DstPx[3] = 255;
+                }
+            }
+        }
+    }
+    else if (DstH == LocalH * 2)
+    {
+        // 640x400: either black scanlines or line-doubling
+        for (int32 sy = 0; sy < LocalH; ++sy)
+        {
+            const int32 dy = sy * 2; // even rows
+            const uint8* SrcRow = LocalCopy.GetData() + sy * LocalW * 4;
+            uint8* DstRow0 = Upscaled.GetData() + dy * DstW * 4;
+            uint8* DstRow1 = Upscaled.GetData() + (dy + 1) * DstW * 4;
 
-                uint8* DstPx1 = DstRow1 + dx * 4;
-#if 0
-                DstPx1[0] = 0;
-                DstPx1[1] = 0;
-                DstPx1[2] = 0;
-                DstPx1[3] = 255;
+            for (int32 sx = 0; sx < LocalW; ++sx)
+            {
+                const uint8* SrcPx = SrcRow + sx * 4; // BGRA
+                const int32 dx0 = sx * ScaleX;
+                const int32 dx1 = FMath::Min(dx0 + ScaleX - 1, DstW - 1);
+
+                // write horizontally scaled pixels to two rows
+                for (int32 dx = dx0; dx <= dx1; ++dx)
+                {
+                    uint8* DstPx0 = DstRow0 + dx * 4;
+                    DstPx0[0] = SrcPx[0];
+                    DstPx0[1] = SrcPx[1];
+                    DstPx0[2] = SrcPx[2];
+                    DstPx0[3] = 255;
+
+                    uint8* DstPx1 = DstRow1 + dx * 4;
+#if SF_SCANLINE_BLACK
+                    DstPx1[0] = 0;
+                    DstPx1[1] = 0;
+                    DstPx1[2] = 0;
+                    DstPx1[3] = 255;
 #else
-                DstPx1[0] = SrcPx[0];
-                DstPx1[1] = SrcPx[1];
-                DstPx1[2] = SrcPx[2];
-                DstPx0[3] = 255;
+                    DstPx1[0] = SrcPx[0];
+                    DstPx1[1] = SrcPx[1];
+                    DstPx1[2] = SrcPx[2];
+                    DstPx1[3] = 255;
 #endif
+                }
+            }
+        }
+    }
+    else
+    {
+        // Fallback: simple nearest-neighbor vertical scaling to DstH
+        for (int32 dy = 0; dy < DstH; ++dy)
+        {
+            const int32 sy = FMath::Clamp((dy * LocalH) / FMath::Max(1, DstH), 0, LocalH - 1);
+            const uint8* SrcRow = LocalCopy.GetData() + sy * LocalW * 4;
+            uint8* DstRow = Upscaled.GetData() + dy * DstW * 4;
+            for (int32 sx = 0; sx < LocalW; ++sx)
+            {
+                const uint8* SrcPx = SrcRow + sx * 4;
+                const int32 dx0 = sx * ScaleX;
+                const int32 dx1 = FMath::Min(dx0 + ScaleX - 1, DstW - 1);
+                for (int32 dx = dx0; dx <= dx1; ++dx)
+                {
+                    uint8* DstPx = DstRow + dx * 4;
+                    DstPx[0] = SrcPx[0];
+                    DstPx[1] = SrcPx[1];
+                    DstPx[2] = SrcPx[2]; 
+                    DstPx[3] = 255;
+                }
             }
         }
     }
 
-#if 0
+#if 1
 	// Dump images here
 	{
 		static bool bDumpDirReady = false;
@@ -226,8 +296,8 @@ void AStarflightHUD::UpdateTexture()
                 {
                     if (FRHITexture2D* Tex2D = RHITexture->GetTexture2D())
                     {
-                        const uint32 SrcPitch = 640u * 4u;
-                        FUpdateTextureRegion2D Region(0, 0, 0, 0, 640u, 400u);
+                        const uint32 SrcPitch = static_cast<uint32>(SF_OUTPUT_WIDTH) * 4u;
+                        FUpdateTextureRegion2D Region(0, 0, 0, 0, static_cast<uint32>(SF_OUTPUT_WIDTH), static_cast<uint32>(SF_OUTPUT_HEIGHT));
                         RHICmdList.UpdateTexture2D(Tex2D, 0, Region, SrcPitch, BufferCopy.GetData());
 
                         FRDGBuilder GraphBuilder(RHICmdList);
@@ -248,8 +318,8 @@ void AStarflightHUD::FillTextureSolid(const FColor& Color)
 {
     if (!UpscaledIntermediateTexture || !UpscaledRenderTarget) return;
 
-    const int32 LocalW = 640;
-    const int32 LocalH = 400;
+    const int32 LocalW = SF_OUTPUT_WIDTH;
+    const int32 LocalH = SF_OUTPUT_HEIGHT;
 	const int32 NumPixels = LocalW * LocalH;
 	const int32 NumBytes = NumPixels * 4;
 
@@ -279,8 +349,8 @@ void AStarflightHUD::FillTextureSolid(const FColor& Color)
             {
                 if (FRHITexture2D* Tex2D = RHITexture->GetTexture2D())
                 {
-                    const uint32 SrcPitch = 640u * 4u;
-                    FUpdateTextureRegion2D Region(0, 0, 0, 0, 640u, 400u);
+                    const uint32 SrcPitch = static_cast<uint32>(SF_OUTPUT_WIDTH) * 4u;
+                    FUpdateTextureRegion2D Region(0, 0, 0, 0, static_cast<uint32>(SF_OUTPUT_WIDTH), static_cast<uint32>(SF_OUTPUT_HEIGHT));
                     RHICmdList.UpdateTexture2D(Tex2D, 0, Region, SrcPitch, BufferCopy.GetData());
 
                     FRDGBuilder GraphBuilder(RHICmdList);

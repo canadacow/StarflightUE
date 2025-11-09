@@ -1,0 +1,184 @@
+// Project-level ScanlineLib.ush - include via /Project/ScanlineLib.ush
+
+// CRT-style upscale to a fixed target with inserted black scanlines
+// Upscales a low-res source (e.g. 320x200 or 640x200) into 640x400.
+// Behavior:
+// - Horizontal: nearest-neighbor stretch to destination width (handles 320->640 or 640->640)
+// - Vertical: duplicate rows with an inserted black line between (odd rows are black)
+// Returns one sample at the given destination UV.
+float3 CRT_UpscaleScanline_Sample(Texture2D Tex, SamplerState Samp, float2 UV)
+{
+    // Fixed destination
+    const float2 DstSize = float2(640.0, 400.0);
+
+    // Derive source size from texture
+    uint srcW, srcH;
+    Tex.GetDimensions(srcW, srcH);
+    float2 SrcSize = float2((float)srcW, (float)srcH);
+
+    // Destination integer pixel coordinates
+    float2 pDst = UV * DstSize;
+    float2 iDst = floor(pDst);
+
+    // Insert black scanlines on odd destination rows
+    if (fmod(iDst.y, 2.0) >= 1.0)
+    {
+        return 0.0.xxx;
+    }
+
+    // Map to source pixel (nearest neighbor)
+    // Horizontal scale: proportional map
+    float sx = floor(iDst.x * (SrcSize.x / DstSize.x));
+    // Vertical: every even destination row maps to source row
+    float sy = floor(iDst.y * 0.5);
+
+    // Clamp to valid range
+    sx = clamp(sx, 0.0, SrcSize.x - 1.0);
+    sy = clamp(sy, 0.0, SrcSize.y - 1.0);
+
+    // Sample at source pixel center
+    float2 uvSrc = (float2(sx + 0.5, sy + 0.5)) / SrcSize;
+    return Texture2DSample(Tex, Samp, uvSrc).rgb;
+}
+
+// 16-tap multisample (4x4 stratified grid in [-0.5, 0.5]) for stronger anti-aliasing.
+float3 CRT_UpscaleScanline_MS16(Texture2D Tex, SamplerState Samp, float2 UV)
+{
+    float2 stepUV;
+    stepUV.x = max(abs(ddx(UV.x)), abs(ddy(UV.x)));
+    stepUV.y = max(abs(ddx(UV.y)), abs(ddy(UV.y)));
+
+    // 4x4 grid with centers at {-0.375, -0.125, 0.125, 0.375}
+    static const float2 OFFS16[16] = {
+        float2(-0.375, -0.375), float2(-0.125, -0.375), float2( 0.125, -0.375), float2( 0.375, -0.375),
+        float2(-0.375, -0.125), float2(-0.125, -0.125), float2( 0.125, -0.125), float2( 0.375, -0.125),
+        float2(-0.375,  0.125), float2(-0.125,  0.125), float2( 0.125,  0.125), float2( 0.375,  0.125),
+        float2(-0.375,  0.375), float2(-0.125,  0.375), float2( 0.125,  0.375), float2( 0.375,  0.375)
+    };
+
+    float3 sum = 0.0;
+    [unroll]
+    for (int i = 0; i < 16; ++i)
+    {
+        float2 uv_i = UV + OFFS16[i] * stepUV;
+        sum += CRT_UpscaleScanline_Sample(Tex, Samp, uv_i);
+    }
+    return sum * (1.0 / 16.0);
+}
+
+#ifndef SFCRT_LOTTES_SCANLINE_INCLUDED
+#define SFCRT_LOTTES_SCANLINE_INCLUDED
+
+// Fixed input resolution (your RT)
+static const float2 SFCRT_Res = float2(640.0, 200.0);
+
+// 1D Gaussian
+static float SFCRT_Gaus(float x, float scale) { return exp2(scale * x * x); }
+
+// Distance in emulated pixels to nearest texel center (signed)
+static float2 SFCRT_Dist(float2 uv)
+{
+    float2 p = uv * SFCRT_Res;
+    return -((p - floor(p)) - 0.5);
+}
+
+// Fetch nearest emulated sample at texel offset 'off' (in texels), clamped
+static float3 SFCRT_Fetch(Texture2D Tex, SamplerState Samp, float2 uv, float2 off)
+{
+    float2 p = floor(uv * SFCRT_Res + off) / SFCRT_Res;
+    p = saturate(p);
+    return Texture2DSample(Tex, Samp, p).rgb; // sampling is linear in UE for sRGB RTs
+}
+
+// Horizontal 3-tap along a single scanline
+static float3 SFCRT_Horz3(Texture2D Tex, SamplerState Samp, float2 uv, float offY, float hardPix)
+{
+    float3 b = SFCRT_Fetch(Tex, Samp, uv, float2(-1.0, offY));
+    float3 c = SFCRT_Fetch(Tex, Samp, uv, float2( 0.0, offY));
+    float3 d = SFCRT_Fetch(Tex, Samp, uv, float2( 1.0, offY));
+
+    float dx = SFCRT_Dist(uv).x;
+    float wb = SFCRT_Gaus(dx - 1.0, hardPix);
+    float wc = SFCRT_Gaus(dx + 0.0, hardPix);
+    float wd = SFCRT_Gaus(dx + 1.0, hardPix);
+
+    return (b*wb + c*wc + d*wd) / (wb + wc + wd + 1e-6);
+}
+
+// Horizontal 5-tap along a single scanline
+static float3 SFCRT_Horz5(Texture2D Tex, SamplerState Samp, float2 uv, float offY, float hardPix)
+{
+    float3 a = SFCRT_Fetch(Tex, Samp, uv, float2(-2.0, offY));
+    float3 b = SFCRT_Fetch(Tex, Samp, uv, float2(-1.0, offY));
+    float3 c = SFCRT_Fetch(Tex, Samp, uv, float2( 0.0, offY));
+    float3 d = SFCRT_Fetch(Tex, Samp, uv, float2( 1.0, offY));
+    float3 e = SFCRT_Fetch(Tex, Samp, uv, float2( 2.0, offY));
+
+    float dx = SFCRT_Dist(uv).x;
+    float wa = SFCRT_Gaus(dx - 2.0, hardPix);
+    float wb = SFCRT_Gaus(dx - 1.0, hardPix);
+    float wc = SFCRT_Gaus(dx + 0.0, hardPix);
+    float wd = SFCRT_Gaus(dx + 1.0, hardPix);
+    float we = SFCRT_Gaus(dx + 2.0, hardPix);
+
+    return (a*wa + b*wb + c*wc + d*wd + e*we) / (wa + wb + wc + wd + we + 1e-6);
+}
+
+// Vertical scanline weight
+static float SFCRT_Scan(float2 uv, float offY, float hardScan)
+{
+    float dy = SFCRT_Dist(uv).y;
+    return SFCRT_Gaus(dy + offY, hardScan);
+}
+
+// Optional RGB triad shadow mask (disabled by default)
+static float3 SFCRT_Mask(float2 uv, float maskDark, float maskLight)
+{
+    float2 p = uv * SFCRT_Res;
+    p.x += p.y * 3.0;
+    float3 mask = float3(maskDark, maskDark, maskDark);
+    float x = frac(p.x / 6.0);
+    if (x < 0.333)      mask.r = maskLight;
+    else if (x < 0.666) mask.g = maskLight;
+    else                mask.b = maskLight;
+    return mask;
+}
+
+// Public entry: Lottes-style scanline filter, no warp
+static float3 SFCRT_LottesScanline(Texture2D Tex, SamplerState Samp, float2 uv)
+{
+    // Tunables
+    const float hardScan  = -8.0; // scanline hardness
+    const float hardPix   = -3.0;  // horizontal pixel hardness
+    const bool  useMask   = false; // set true to enable mask
+    const float maskDark  = 0.5;
+    const float maskLight = 1.5;
+
+    float3 a = SFCRT_Horz3(Tex, Samp, uv, -1.0, hardPix);
+    float3 b = SFCRT_Horz5(Tex, Samp, uv,  0.0, hardPix);
+    float3 c = SFCRT_Horz3(Tex, Samp, uv,  1.0, hardPix);
+
+    float wa = SFCRT_Scan(uv, -1.0, hardScan);
+    float wb = SFCRT_Scan(uv,  0.0, hardScan);
+    float wc = SFCRT_Scan(uv,  1.0, hardScan);
+
+    float3 col = (a*wa + b*wb + c*wc) / (wa + wb + wc + 1e-6);
+
+    // Explicit per-row scanline darkening with analytic smoothing
+    {
+        const float scanAmount = 0.35; // 0..1, strength of dark rows
+        float y  = uv.y * SFCRT_Res.y;
+        float wy = fwidth(y);
+        float odd = smoothstep(0.5 - wy, 0.5 + wy, frac(y)); // 0 even, 1 odd
+        float brightness = lerp(1.0 - scanAmount, 1.0, odd);
+        col *= brightness;
+    }
+
+    if (useMask)
+    {
+        col *= SFCRT_Mask(uv, maskDark, maskLight);
+    }
+    return col;
+}
+
+#endif // SFCRT_LOTTES_SCANLINE_INCLUDED
