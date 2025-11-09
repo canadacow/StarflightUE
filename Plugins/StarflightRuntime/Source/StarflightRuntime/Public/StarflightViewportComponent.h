@@ -20,6 +20,9 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "Starflight")
     UTextureRenderTarget2D* UpscaledRenderTarget;
 
+    UPROPERTY(BlueprintReadOnly, Category = "Starflight")
+    UTextureRenderTarget2D* CRT6x6RenderTarget;
+
 	// Material parameter and target material name used for the in-world screen
 	UPROPERTY(EditAnywhere, Category = "Starflight|Screen")
 	FName TextureParamName = TEXT("Tex");
@@ -41,6 +44,11 @@ private:
 	uint64 FrameCounter = 0;
 	uint32 DumpCounter = 0;
 
+	// Debug: dump compute output frames (3840x1200) to PNG each frame
+	UPROPERTY(EditAnywhere, Category = "Starflight|Debug")
+	bool bDumpComputeOutput = false;
+	uint32 ComputeDumpCounter = 0;
+
 	// Runtime binding to a mesh using the Screen material
 	TWeakObjectPtr<UMaterialInstanceDynamic> ScreenMID;
 	TWeakObjectPtr<UMeshComponent> ScreenMesh;
@@ -51,6 +59,7 @@ private:
 	void FillTextureSolid(const FColor& Color);
 	void TryBindScreenMID();
 	void PushTextureToMID();
+	void GenerateCRT6x6();
 
     // Intermediate 640x400 CPU-upscaled texture used for blitting to the RT
     UTexture2D* UpscaledIntermediateTexture = nullptr;

@@ -39,6 +39,7 @@ public class StarflightRuntime : ModuleRules
             "Core",
             "CoreUObject",
             "Engine",
+            "Renderer",
             "UMG",
             "ImageWrapper",
             "RenderCore",

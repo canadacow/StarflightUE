@@ -1,0 +1,36 @@
+// Generates a 6x upscaled texture using the CRT Lottes scanline from ScanlineLib.ush
+#include "/Engine/Public/Platform.ush"
+#include "/Starflight/ScanlineLib.ush"
+
+// Toggle between Lottes scanline and regular sampling (1 = Lottes, 0 = regular)
+#ifndef SMALLCRT_USE_LOTTES
+#define SMALLCRT_USE_LOTTES 1
+#endif
+
+Texture2D InputTexture;
+SamplerState InputSampler;
+RWTexture2D<float4> OutputTexture;
+int2 OutputSize;
+uint FrameParity;
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 DTid : SV_DispatchThreadID)
+{
+	// Guard for non-divisible threadgroup sizes
+	if (DTid.x >= OutputSize.x || DTid.y >= OutputSize.y)
+	{
+		return;
+	}
+
+	float2 uv = (float2(DTid.xy) + 0.5) / float2(OutputSize);
+
+	// CRT Lottes scanline evaluate
+	#if SMALLCRT_USE_LOTTES
+		float3 col = SFCRT_LottesScanline(InputTexture, InputSampler, uv, 0.50);
+	#else
+		float3 col = InputTexture.SampleLevel(InputSampler, uv, 0.0).rgb;
+	#endif
+	OutputTexture[DTid.xy] = float4(col, 1.0);
+}
+
+

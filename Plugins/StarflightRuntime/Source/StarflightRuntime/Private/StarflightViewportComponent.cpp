@@ -14,6 +14,12 @@
 #include "GenerateMips.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
+#include "GlobalShader.h"
+#include "ShaderParameterStruct.h"
+#include "ShaderParameterUtils.h"
+#include "RHIStaticStates.h"
+#include "PipelineStateCache.h"
+#include "Async/Async.h"
 #include "IImageWrapperModule.h"
 #include "IImageWrapper.h"
 #include "Modules/ModuleManager.h"
@@ -26,6 +32,32 @@
  #include "Framework/Application/SlateApplication.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightHUD, Log, All);
+
+// -----------------------------------------------------------------------------
+// Global compute shader: generates a 6x6 texture using SFCRT_LottesScanline
+// -----------------------------------------------------------------------------
+
+class FSmallCRTCS : public FGlobalShader
+{
+public:
+	DECLARE_GLOBAL_SHADER(FSmallCRTCS);
+	SHADER_USE_PARAMETER_STRUCT(FSmallCRTCS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER(FIntPoint, OutputSize)
+		SHADER_PARAMETER(uint32, FrameParity)
+		SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture2D, InputTexture)
+		SHADER_PARAMETER_SAMPLER(SamplerState, InputSampler)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutputTexture)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return true;
+	}
+};
+
+IMPLEMENT_GLOBAL_SHADER(FSmallCRTCS, "/Starflight/SmallCRT.usf", "MainCS", SF_Compute);
 
 // -----------------------------------------------------------------------------
 // Output configuration (override via Build.cs or compiler defines if desired)
@@ -78,6 +110,15 @@ void AStarflightHUD::BeginPlay()
 
     // Bind to a mesh that uses the Screen material so we can drive it at runtime
     TryBindScreenMID();
+
+	// Create 6x6 CRT output RT
+	CRT6x6RenderTarget = NewObject<UTextureRenderTarget2D>(this);
+	CRT6x6RenderTarget->ClearColor = FLinearColor::Black;
+	CRT6x6RenderTarget->bAutoGenerateMips = true;
+	CRT6x6RenderTarget->bCanCreateUAV = true;
+	CRT6x6RenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+	CRT6x6RenderTarget->InitAutoFormat(3840, 1200);
+	CRT6x6RenderTarget->UpdateResourceImmediate(true);
 
 	UE_LOG(LogStarflightHUD, Warning, TEXT("Starflight HUD started and emulator launched"));
 }
@@ -251,7 +292,7 @@ void AStarflightHUD::UpdateTexture()
         }
     }
 
-#if 1
+#if 0
 	// Dump images here
 	{
 		static bool bDumpDirReady = false;
@@ -403,9 +444,16 @@ void AStarflightHUD::TryBindScreenMID()
 
 void AStarflightHUD::PushTextureToMID()
 {
-    if (ScreenMID.IsValid() && UpscaledRenderTarget)
+    if (ScreenMID.IsValid())
     {
-        ScreenMID->SetTextureParameterValue(TextureParamName, UpscaledRenderTarget);
+		if (CRT6x6RenderTarget)
+		{
+			ScreenMID->SetTextureParameterValue(TextureParamName, CRT6x6RenderTarget);
+		}
+		else if (UpscaledRenderTarget)
+		{
+			ScreenMID->SetTextureParameterValue(TextureParamName, UpscaledRenderTarget);
+		}
     }
 }
 
@@ -413,16 +461,23 @@ void AStarflightHUD::DrawHUD()
 {
 	Super::DrawHUD();
 
+	// Always advance a frame counter to help debug GPU updates
+	++FrameCounter;
+
 	if (bDebugAlternating)
 	{
 		// Alternate between red and blue every frame
-		const bool bRed = (FrameCounter++ % 2) == 0;
+		const bool bRed = (FrameCounter % 2) == 0;
 		FillTextureSolid(bRed ? FColor(255, 0, 0, 255) : FColor(0, 0, 255, 255));
 	}
 	else
 	{
 		UpdateTexture();
 	}
+
+	// Generate 6x6 CRT texture from the upscaled RT each frame (cheap)
+	GenerateCRT6x6();
+	PushTextureToMID();
 
     if (!ScreenMID.IsValid() && UpscaledRenderTarget && Canvas)
 	{
@@ -437,4 +492,112 @@ void AStarflightHUD::DrawHUD()
 	{
         UE_LOG(LogStarflightHUD, Warning, TEXT("DrawHUD called but UpscaledRenderTarget=%p Canvas=%p"), UpscaledRenderTarget, (void*)Canvas);
 	}
+}
+
+void AStarflightHUD::GenerateCRT6x6()
+{
+	if (!UpscaledRenderTarget || !CRT6x6RenderTarget)
+	{
+		return;
+	}
+
+	FTextureRenderTargetResource* InRes = UpscaledRenderTarget->GameThread_GetRenderTargetResource();
+	FTextureRenderTargetResource* OutRes = CRT6x6RenderTarget->GameThread_GetRenderTargetResource();
+	if (!InRes || !OutRes)
+	{
+		return;
+	}
+
+	FRHITexture* InRHI = InRes->GetRenderTargetTexture();
+	FRHITexture* OutRHI = OutRes->GetRenderTargetTexture();
+	if (!InRHI || !OutRHI)
+	{
+		return;
+	}
+
+	const ERHIFeatureLevel::Type FeatureLevel = GetWorld()->GetFeatureLevel();
+
+	uint32 LocalParity = static_cast<uint32>(FrameCounter & 1ull);
+	const bool bLocalDump = bDumpComputeOutput;
+
+	ENQUEUE_RENDER_COMMAND(RunSmallCRTCS)(
+		[InRHI, OutRHI, FeatureLevel, LocalParity, bLocalDump, this](FRHICommandListImmediate& RHICmdList)
+		{
+			FRDGBuilder GraphBuilder(RHICmdList);
+
+			FRDGTextureRef RDGIn = GraphBuilder.RegisterExternalTexture(CreateRenderTarget(InRHI, TEXT("CRT_Input")));
+			FRDGTextureRef RDGOut = GraphBuilder.RegisterExternalTexture(CreateRenderTarget(OutRHI, TEXT("CRT6x6_Output")));
+			FRDGTextureSRVRef RDGInSRV = GraphBuilder.CreateSRV(FRDGTextureSRVDesc::CreateForMipLevel(RDGIn, 0));
+
+			FSmallCRTCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FSmallCRTCS::FParameters>();
+			PassParameters->OutputSize = FIntPoint(3840, 1200);
+			PassParameters->FrameParity = LocalParity;
+			PassParameters->InputTexture = RDGInSRV;
+			PassParameters->InputSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+			PassParameters->OutputTexture = GraphBuilder.CreateUAV(RDGOut);
+
+			TShaderMapRef<FSmallCRTCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
+
+			const FIntVector GroupSize(
+				(PassParameters->OutputSize.X + 7) / 8,
+				(PassParameters->OutputSize.Y + 7) / 8,
+				1);
+
+			GraphBuilder.AddPass(
+				RDG_EVENT_NAME("SmallCRTCSGenerate6x6"),
+				PassParameters,
+				ERDGPassFlags::Compute,
+				[PassParameters, ComputeShader, GroupSize](FRHICommandList& RHICmdListInner)
+				{
+					FRHIComputeShader* ShaderRHI = ComputeShader.GetComputeShader();
+					SetComputePipelineState(RHICmdListInner, ShaderRHI);
+					SetShaderParameters(RHICmdListInner, ComputeShader, ShaderRHI, *PassParameters);
+					RHICmdListInner.DispatchComputeShader(GroupSize.X, GroupSize.Y, GroupSize.Z);
+					ClearUnusedGraphResources(ComputeShader, PassParameters);
+				});
+
+			// Generate full mip chain for trilinear filtering downstream
+			{
+				FGenerateMipsParams Params;
+				FGenerateMips::Execute(GraphBuilder, FeatureLevel, RDGOut, Params, EGenerateMipsPass::Compute);
+			}
+
+			GraphBuilder.Execute();
+
+			if (bLocalDump)
+			{
+				FRHITexture2D* OutTex2D = OutRHI ? OutRHI->GetTexture2D() : nullptr;
+				if (OutTex2D)
+				{
+					const FIntPoint DumpSize(3840, 1200);
+					TArray<FColor> Pixels;
+					Pixels.SetNumUninitialized(DumpSize.X * DumpSize.Y);
+					FReadSurfaceDataFlags Flags(RCM_UNorm, CubeFace_MAX);
+					RHICmdList.ReadSurfaceData(OutTex2D, FIntRect(0, 0, DumpSize.X, DumpSize.Y), Pixels, Flags);
+
+					// Hand off to game thread to compress and write file
+					TArray<FColor> PixelsCopy = MoveTemp(Pixels);
+					const uint32 DumpIdx = ++ComputeDumpCounter;
+					AsyncTask(ENamedThreads::GameThread, [PixelsCopy = MoveTemp(PixelsCopy), DumpSize, DumpIdx]()
+					{
+						IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+						TSharedPtr<IImageWrapper> PngWriter = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+						if (PngWriter.IsValid())
+						{
+							PngWriter->SetRaw(PixelsCopy.GetData(), PixelsCopy.Num() * sizeof(FColor), DumpSize.X, DumpSize.Y, ERGBFormat::BGRA, 8);
+							const TArray64<uint8>& Compressed64 = PngWriter->GetCompressed(0);
+							TArray<uint8> Compressed;
+							Compressed.Append(Compressed64.GetData(), static_cast<int32>(Compressed64.Num()));
+							const FString DumpDir = FPaths::Combine(FPaths::ProjectDir(), TEXT("ComputeDump"));
+							IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+							PlatformFile.CreateDirectoryTree(*DumpDir);
+							const FString FileName = FString::Printf(TEXT("compute_%05u.png"), DumpIdx);
+							const FString FilePath = FPaths::Combine(DumpDir, FileName);
+							FFileHelper::SaveArrayToFile(Compressed, *FilePath);
+						}
+					});
+				}
+			}
+		}
+	);
 }

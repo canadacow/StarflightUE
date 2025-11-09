@@ -6,6 +6,8 @@
 
 #include "GameFramework/PlayerController.h"
 #include "StarflightViewportComponent.h"
+#include "Interfaces/IPluginManager.h"
+#include "ShaderCore.h"
 #include "TimerManager.h"
 #include "Logging/LogMacros.h"
 
@@ -18,6 +20,13 @@ public:
 	{
 		// Initialize asset system
 		FStarflightAssets::Get().Initialize();
+		
+		// Map plugin Shaders/ to a virtual path so global shaders can be found
+		{
+			// Map the project-level Shaders/ (our .usf files are here) to a single virtual path.
+			const FString ProjectShaderDir = FPaths::Combine(FPaths::ProjectDir(), TEXT("Shaders"));
+			AddShaderSourceDirectoryMapping(TEXT("/Starflight"), ProjectShaderDir);
+		}
 		
         // Emulator will be started when HUD BeginPlay() is called (when Play is pressed)
         WorldInitHandle = FWorldDelegates::OnPostWorldInitialization.AddRaw(this, &FStarflightRuntimeModule::OnWorldInit);
