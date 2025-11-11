@@ -90,7 +90,7 @@ struct FrameSync {
     uint32_t completedFrames = 0;
     std::chrono::steady_clock::time_point maneuveringStartTime;
     std::chrono::steady_clock::time_point maneuveringEndTime;
-    std::chrono::milliseconds gameTickTimer;
+    int32_t gameTickTimer;
     std::mutex mutex;
 };
 

@@ -17,6 +17,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <direct.h> // for _getcwd on Windows
+#if defined(_WIN32)
+#include <io.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#endif
 #include "cpu/cpu.h"
 #include "fract.h"
 #include "graphics.h"
@@ -49,6 +54,28 @@ static void SF_Log(const char* Format, ...)
 // #include "../disasOV/global.h"  // Not needed for UE build
 #include "util/lodepng.h"
 #include "tts/speech.h"
+
+// Extremely fast append-only trace for hot-path "Call:" logs.
+// Writes to call_trace.txt so it can be tailed externally.
+static void SF_FastCallTrace(unsigned short addr, unsigned short bx, const char* overlayName, unsigned short forthIp)
+{
+	static int s_fd = -1;
+	if (s_fd == -1)
+	{
+		// Allow readers to tail while we write; append-only, binary mode to avoid translations.
+		_sopen_s(&s_fd, "c:/temp/call_trace.txt", _O_APPEND | _O_CREAT | _O_WRONLY | _O_BINARY, _SH_DENYNO, _S_IREAD | _S_IWRITE);
+	}
+	if (s_fd != -1)
+	{
+		char buf[128];
+		const char* ov = overlayName ? overlayName : "?";
+		int len = _snprintf_s(buf, sizeof(buf), _TRUNCATE, "Call: si=0x%04x, ov=%s, addr=0x%04x, bx=0x%04x\r\n", forthIp, ov, addr, bx);
+		if (len > 0)
+		{
+			_write(s_fd, buf, len);
+		}
+	}
+}
 
 #include "starsystem.h"
 #include "instance.h"
@@ -1464,6 +1491,9 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         assert(false);
         return EMULATOR_ERROR;
     }
+
+	SF_FastCallTrace(addr, bx, overlayName, regsi);
+
     switch(addr)
     {
         // --- call functions ---
@@ -3365,12 +3395,13 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
         break;
 
         case 0x25bc: // "(?TERMINAL)" keyboard check buffer
+#if 0
             if (frameSync.maneuvering && !frameSync.inGameOps)
             {
                 if (GraphicsHasKey())
                 {
                     std::lock_guard<std::mutex> lg(frameSync.mutex);
-                    if (frameSync.gameTickTimer.count() < 2)
+                    if (frameSync.gameTickTimer < 2)
                     {
                         Push(1);
                     }
@@ -3389,6 +3420,7 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             }
             else
             {
+#endif
                 if (GraphicsHasKey())
                 {
                     Push(1);
@@ -3397,7 +3429,9 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                 {
                     Push(0);
                 }
+#if 0
             }
+#endif
         break;
 
         case 0x1D29: Push(bx+2); break; // get pointer to variable or table
@@ -5438,6 +5472,12 @@ enum RETURNCODE Step()
 
 void InitEmulator(std::filesystem::path path)
 {
+    // Ensure a fresh trace file each run
+    {
+        std::error_code ec;
+        std::filesystem::remove("c:/temp/call_trace.txt", ec);
+    }
+    
     regbp = 0xd4a7 + 0x100 + 0x80; // call stack
     regsp = 0xd4a7 + 0x100;  // initial parameter stack
     LoadSTARFLT(path);

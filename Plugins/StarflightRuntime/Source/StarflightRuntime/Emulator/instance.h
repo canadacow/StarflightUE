@@ -3,6 +3,10 @@
 // =========== Instance Tree ===========
 // =====================================
 
+#if defined(_MSC_VER)
+#pragma warning(disable: 4883) // function size suppresses optimizations (huge static initializer); safe to ignore
+#endif
+
 #include <string>
 #include <unordered_map>
 

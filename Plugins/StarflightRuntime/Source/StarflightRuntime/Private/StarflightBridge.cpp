@@ -6,6 +6,9 @@
 #include "call.h"
 #include "graphics.h"
 #include "Misc/Paths.h"
+#include "Logging/LogMacros.h"
+#include "HAL/PlatformTLS.h"
+#include "../Emulator/platform.h"
 
 #include <atomic>
 #include <mutex>
@@ -26,6 +29,9 @@ namespace
 	std::thread gWorker;
 	std::thread gGraphicsThread;
 }
+
+DEFINE_LOG_CATEGORY_STATIC(LogStarflightBridge, Log, All);
+#define SF_LOG(Format, ...) UE_LOG(LogStarflightBridge, Log, Format, ##__VA_ARGS__)
 
 // Forward declaration for internal emit helper
 static inline void EmitAudio(const int16_t* pcm, int frames, int rate, int channels);
@@ -58,6 +64,9 @@ void StartStarflight()
 
 	// Start emulator thread
 	gWorker = std::thread([](){
+		SetCurrentThreadName("Starflight Emulator");
+		SF_LOG(TEXT("Emulator thread started (id=%u)"), FPlatformTLS::GetCurrentThreadId());
+		
 		InitEmulator("");  // Load game data from starflt1-in directory
 
 		enum RETURNCODE ret = OK;
@@ -72,6 +81,8 @@ void StartStarflight()
 				break;
 			}
 		} while (ret == OK || ret == EXIT);
+		
+		SF_LOG(TEXT("Emulator thread terminating (id=%u)"), FPlatformTLS::GetCurrentThreadId());
 	});
 
 	// Start graphics update thread (60Hz)
