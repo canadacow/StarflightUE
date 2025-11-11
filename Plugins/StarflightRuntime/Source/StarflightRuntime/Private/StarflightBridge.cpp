@@ -25,6 +25,7 @@ namespace
 	std::mutex gSinksMutex;
 	FrameSinkFn gFrameSink;
 	AudioSinkFn gAudioSink;
+	static RotoscopeSinkFn gRotoSink;
 	std::atomic<bool> gRunning{ false };
 	std::thread gWorker;
 	std::thread gGraphicsThread;
@@ -46,6 +47,12 @@ void SetAudioSink(AudioSinkFn cb)
 {
 	std::lock_guard<std::mutex> lock(gSinksMutex);
 	gAudioSink = std::move(cb);
+}
+
+void SetRotoscopeSink(RotoscopeSinkFn cb)
+{
+	std::lock_guard<std::mutex> lock(gSinksMutex);
+	gRotoSink = std::move(cb);
 }
 
 void StartStarflight()
@@ -122,6 +129,16 @@ static inline void EmitAudio(const int16_t* pcm, int frames, int rate, int chann
 		sink = gAudioSink;
 	}
 	if (sink) { sink(pcm, frames, rate, channels); }
+}
+
+void EmitRotoscope(const uint8_t* bgra, int w, int h, int pitch)
+{
+	RotoscopeSinkFn sink;
+	{
+		std::lock_guard<std::mutex> lock(gSinksMutex);
+		sink = gRotoSink;
+	}
+	if (sink) { sink(bgra, w, h, pitch); }
 }
 
 

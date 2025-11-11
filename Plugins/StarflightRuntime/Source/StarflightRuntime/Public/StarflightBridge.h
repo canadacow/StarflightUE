@@ -17,4 +17,9 @@ void SetAudioSink(AudioSinkFn cb);
 // Internal helper called by graphics.cpp to emit frames
 void EmitFrame(const uint8_t* bgra, int w, int h, int pitch);
 
+// Optional rotoscope debug stream (160x200 BGRA)
+using RotoscopeSinkFn = std::function<void(const uint8_t* bgra, int width, int height, int pitch)>;
+void SetRotoscopeSink(RotoscopeSinkFn cb);
+void EmitRotoscope(const uint8_t* bgra, int w, int h, int pitch);
+
 

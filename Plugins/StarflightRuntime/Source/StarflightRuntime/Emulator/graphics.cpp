@@ -64,6 +64,51 @@ constexpr int GRAPHICS_MEMORY_ALLOC = 65536; // Matches native backing store
 constexpr uint32_t TEXT_SEGMENT = 0xB800;
 constexpr uint32_t GRAPHICS_SEGMENT = 0xA000;
 
+// Debug: color mapping per PixelContents for rotoscope visualization (BGRA)
+static inline uint32_t RotoDebugBGRA(uint8_t content)
+{
+    switch (content)
+    {
+        case ClearPixel:        return 0x00000000u; // transparent/black
+        case NavigationalPixel: return 0x00FFFFFFu; // white-ish (BGRA: FF FF FF 00)
+        case TextPixel:         return 0x00FFFFFFu; // white
+        case LinePixel:         return 0x000000FFu; // red
+        case EllipsePixel:      return 0x00FF00FFu; // magenta
+        case BoxFillPixel:      return 0x0000FF00u; // green
+        case PolyFillPixel:     return 0x0000FFFFu; // yellow
+        case PicPixel:          return 0x00FF0000u; // blue
+        case PlotPixel:         return 0x0000FFFFu; // yellow
+        case TilePixel:         return 0x00800080u; // purple-ish
+        case RunBitPixel:       return 0x0080FFFFu; // orange-ish
+        case AuxSysPixel:       return 0x0080FF80u; // pink-ish/green-ish
+        case StarMapPixel:      return 0x00FF80FFu; // soft pink
+        case SpaceManPixel:     return 0x00808040u; // brown-ish
+        default:                return 0x00808080u; // gray
+    }
+}
+
+// Build and emit the 160x200 rotoscope debug buffer once per GraphicsUpdate
+static void EmitRotoscopeDebug()
+{
+    static std::vector<uint8_t> s_rotoDebug;
+    s_rotoDebug.resize(GRAPHICS_MODE_WIDTH * GRAPHICS_MODE_HEIGHT * 4);
+    std::lock_guard<std::mutex> rg(rotoscopePixelMutex);
+    for (int y = 0; y < GRAPHICS_MODE_HEIGHT; ++y)
+    {
+        for (int x = 0; x < GRAPHICS_MODE_WIDTH; ++x)
+        {
+            const Rotoscope& rs = rotoscopePixels[y * GRAPHICS_MODE_WIDTH + x];
+            const uint32_t bgra = RotoDebugBGRA(static_cast<uint8_t>(rs.content));
+            const int o = (y * GRAPHICS_MODE_WIDTH + x) * 4;
+            s_rotoDebug[o + 0] = (uint8_t)((bgra >> 0) & 0xFF);
+            s_rotoDebug[o + 1] = (uint8_t)((bgra >> 8) & 0xFF);
+            s_rotoDebug[o + 2] = (uint8_t)((bgra >> 16) & 0xFF);
+            s_rotoDebug[o + 3] = (uint8_t)((bgra >> 24) & 0xFF);
+        }
+    }
+    EmitRotoscope(s_rotoDebug.data(), GRAPHICS_MODE_WIDTH, GRAPHICS_MODE_HEIGHT, GRAPHICS_MODE_WIDTH * 4);
+}
+
 void GraphicsInit()
 {
     s_framebuffer.resize(TEXT_WIDTH * TEXT_CHAR_WIDTH * TEXT_HEIGHT * TEXT_CHAR_HEIGHT * 4, 0);
@@ -165,6 +210,9 @@ void GraphicsUpdate()
 
         EmitFrame(s_framebuffer.data(), GRAPHICS_MODE_WIDTH, GRAPHICS_MODE_HEIGHT, GRAPHICS_MODE_WIDTH * 4);
     }
+
+    // Emit rotoscope debug buffer once per frame
+    EmitRotoscopeDebug();
 }
 
 void GraphicsMode(int mode)

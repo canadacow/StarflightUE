@@ -121,6 +121,21 @@ void AStarflightHUD::BeginPlay()
 	CRT6x6RenderTarget->UpdateResourceImmediate(true);
 
 	UE_LOG(LogStarflightHUD, Warning, TEXT("Starflight HUD started and emulator launched"));
+
+	// Create 160x200 rotoscope debug texture (point filtered)
+	RotoscopeTexture = UTexture2D::CreateTransient(160, 200, PF_B8G8R8A8);
+	if (RotoscopeTexture)
+	{
+		RotoscopeTexture->SRGB = false;
+		RotoscopeTexture->Filter = TF_Nearest;
+		RotoscopeTexture->UpdateResource();
+	}
+
+	// Subscribe to rotoscope debug stream
+	SetRotoscopeSink([this](const uint8* BGRA, int W, int H, int Pitch)
+	{
+		OnRotoscope(BGRA, W, H, Pitch);
+	});
 }
 
 void AStarflightHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -131,6 +146,7 @@ void AStarflightHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	StopStarflight();
 	
 	SetFrameSink(nullptr);
+	SetRotoscopeSink(nullptr);
 
     // Restore editor-friendly input focus
     if (UWorld* World = GetWorld())
@@ -479,6 +495,25 @@ void AStarflightHUD::DrawHUD()
 	GenerateCRT6x6();
 	PushTextureToMID();
 
+	// Draw rotoscope overlay in lower-right if Canvas is available
+	if (Canvas)
+	{
+		UpdateRotoscopeTexture();
+		if (RotoscopeTexture)
+		{
+			FTextureResource* RotoRes = RotoscopeTexture->GetResource();
+			if (RotoRes && RotoRes->TextureRHI.IsValid())
+			{
+				const float Scale = 1.0f;
+				const FVector2D Size(static_cast<float>(RotoW) * Scale, static_cast<float>(RotoH) * Scale);
+				const FVector2D Pos(Canvas->SizeX - Size.X - 8.0f, Canvas->SizeY - Size.Y - 8.0f);
+				FCanvasTileItem RotoTile(Pos, RotoRes, Size, FLinearColor::White);
+				RotoTile.BlendMode = SE_BLEND_Opaque;
+				Canvas->DrawItem(RotoTile);
+			}
+		}
+	}
+
     if (!ScreenMID.IsValid() && UpscaledRenderTarget && Canvas)
 	{
 		// Draw texture fullscreen
@@ -597,6 +632,67 @@ void AStarflightHUD::GenerateCRT6x6()
 						}
 					});
 				}
+			}
+		}
+	);
+}
+
+void AStarflightHUD::OnRotoscope(const uint8* BGRA, int W, int H, int Pitch)
+{
+	FScopeLock Lock(&RotoMutex);
+	RotoW = W;
+	RotoH = H;
+	RotoPitch = Pitch;
+	LatestRoto.SetNum(W * H * 4);
+	if (Pitch == W * 4)
+	{
+		FMemory::Memcpy(LatestRoto.GetData(), BGRA, W * H * 4);
+	}
+	else
+	{
+		for (int y = 0; y < H; ++y)
+		{
+			FMemory::Memcpy(
+				LatestRoto.GetData() + y * W * 4,
+				BGRA + y * Pitch,
+				W * 4
+			);
+		}
+	}
+}
+
+void AStarflightHUD::UpdateRotoscopeTexture()
+{
+	if (!RotoscopeTexture)
+	{
+		return;
+	}
+
+	TArray<uint8> Local;
+	int32 W = 0, H = 0, Pitch = 0;
+	{
+		FScopeLock Lock(&RotoMutex);
+		if (LatestRoto.Num() == 0)
+		{
+			return;
+		}
+		Local = LatestRoto;
+		W = RotoW;
+		H = RotoH;
+		Pitch = RotoPitch;
+	}
+
+	ENQUEUE_RENDER_COMMAND(UpdateRotoTex)(
+		[TexRHI = RotoscopeTexture->GetResource() ? RotoscopeTexture->GetResource()->TextureRHI : nullptr, Local = MoveTemp(Local), W, H, Pitch](FRHICommandListImmediate& RHICmdList) mutable
+		{
+			if (!TexRHI)
+			{
+				return;
+			}
+			if (FRHITexture2D* Tex2D = TexRHI->GetTexture2D())
+			{
+				const FUpdateTextureRegion2D Region(0, 0, 0, 0, static_cast<uint32>(W), static_cast<uint32>(H));
+				RHICmdList.UpdateTexture2D(Tex2D, 0, Region, static_cast<uint32>(Pitch), Local.GetData());
 			}
 		}
 	);

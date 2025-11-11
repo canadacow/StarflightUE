@@ -63,4 +63,15 @@ private:
 
     // Intermediate 640x400 CPU-upscaled texture used for blitting to the RT
     UTexture2D* UpscaledIntermediateTexture = nullptr;
+
+	// Rotoscope 160x200 debug overlay
+	FCriticalSection RotoMutex;
+	TArray<uint8> LatestRoto;
+	int32 RotoW = 160;
+	int32 RotoH = 200;
+	int32 RotoPitch = 160 * 4;
+	UTexture2D* RotoscopeTexture = nullptr;
+
+	void OnRotoscope(const uint8* BGRA, int W, int H, int Pitch);
+	void UpdateRotoscopeTexture();
 };
