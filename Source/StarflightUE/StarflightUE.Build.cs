@@ -15,7 +15,11 @@ public class StarflightUE : ModuleRules
             "InputCore",
             "RenderCore",
             "RHI",
-            "StarflightRuntime"
+            "StarflightRuntime",
+            "UMG",
+            "Slate",
+            "SlateCore",
+            "ImageWrapper"
         });
 
         PrivateDependencyModuleNames.AddRange(new string[]
