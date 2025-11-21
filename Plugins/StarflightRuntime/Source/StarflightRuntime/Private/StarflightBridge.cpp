@@ -57,7 +57,12 @@ void SetRotoscopeSink(RotoscopeSinkFn cb)
 
 void StartStarflight()
 {
-	gRunning.store(true, std::memory_order_release);
+	bool bExpected = false;
+	if (!gRunning.compare_exchange_strong(bExpected, true, std::memory_order_acq_rel))
+	{
+		SF_LOG(TEXT("StartStarflight called while emulator already running."));
+		return;
+	}
 
 	// Set project directory for emulator file loading (convert to absolute path)
 	FString ProjectDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
@@ -104,8 +109,13 @@ void StartStarflight()
 
 void StopStarflight()
 {
+	if (!gRunning.exchange(false, std::memory_order_acq_rel))
+	{
+		SF_LOG(TEXT("StopStarflight called but emulator was not running."));
+		return;
+	}
+
 	GraphicsQuit();
-	gRunning.store(false, std::memory_order_release);
 	if (gWorker.joinable()) gWorker.join();
 	if (gGraphicsThread.joinable()) gGraphicsThread.join();
 }
