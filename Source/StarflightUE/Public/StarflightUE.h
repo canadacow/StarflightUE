@@ -1,12 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Pawn.h"
+#include "GameFramework/SpectatorPawn.h"
 #include "GameFramework/GameModeBase.h"
 #include "StarflightUE.generated.h"
 
 UCLASS(BlueprintType, Blueprintable)
-class STARFLIGHTUE_API AStarflightPawn : public APawn
+class STARFLIGHTUE_API AStarflightPawn : public ASpectatorPawn
 {
     GENERATED_BODY()
 public:

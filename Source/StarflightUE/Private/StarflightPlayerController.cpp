@@ -8,8 +8,6 @@
 
 bool AStarflightPlayerController::InputKey(const FInputKeyEventArgs& EventArgs)
 {
-    __debugbreak();
-
     const FKey Key = EventArgs.Key;
     const bool bPressed = (EventArgs.Event == IE_Pressed || EventArgs.Event == IE_Repeat);
 
@@ -38,8 +36,6 @@ bool AStarflightPlayerController::InputKey(const FInputKeyEventArgs& EventArgs)
 
 void AStarflightPlayerController::UpdateModifierState(const FKey& Key, bool bPressed)
 {
-    __debugbreak();
-
     if (Key == EKeys::LeftShift || Key == EKeys::RightShift) bShiftDown = bPressed;
     else if (Key == EKeys::LeftControl || Key == EKeys::RightControl) bCtrlDown = bPressed;
     else if (Key == EKeys::LeftAlt || Key == EKeys::RightAlt) bAltDown = bPressed;
@@ -49,13 +45,11 @@ void AStarflightPlayerController::BeginPlay()
 {
     Super::BeginPlay();
 
-    __debugbreak();
-
     // Create main menu widget
     CreateMainMenuWidget();
 
     // Show main menu on start
-    ShowMainMenu();
+    //ShowMainMenu();
 
     // Start with UI mode so we can interact with the menu
     FInputModeGameAndUI Mode;
