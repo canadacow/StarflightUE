@@ -3,8 +3,36 @@
 #include "StarflightBridge.h"
 #include "Engine/GameInstance.h"
 #include "Misc/ScopeLock.h"
+#include "Async/Async.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightEmulatorSubsystem, Log, All);
+
+namespace
+{
+	static const TCHAR* StateToString(FStarflightEmulatorState State)
+	{
+		switch (State)
+		{
+		case FStarflightEmulatorState::Off:                      return TEXT("Off");
+		case FStarflightEmulatorState::Unknown:                  return TEXT("Unknown");
+		case FStarflightEmulatorState::LOGO1:                    return TEXT("LOGO1");
+		case FStarflightEmulatorState::LOGO2:                    return TEXT("LOGO2");
+		case FStarflightEmulatorState::Station:                  return TEXT("Station");
+		case FStarflightEmulatorState::Starmap:                  return TEXT("Starmap");
+		case FStarflightEmulatorState::Comms:                    return TEXT("Comms");
+		case FStarflightEmulatorState::Encounter:                return TEXT("Encounter");
+		case FStarflightEmulatorState::InFlux:                   return TEXT("InFlux");
+		case FStarflightEmulatorState::IntrastellarNavigation:   return TEXT("IntrastellarNavigation");
+		case FStarflightEmulatorState::InterstellarNavigation:   return TEXT("InterstellarNavigation");
+		case FStarflightEmulatorState::Orbiting:                 return TEXT("Orbiting");
+		case FStarflightEmulatorState::OrbitLanding:             return TEXT("OrbitLanding");
+		case FStarflightEmulatorState::OrbitLanded:              return TEXT("OrbitLanded");
+		case FStarflightEmulatorState::OrbitTakeoff:             return TEXT("OrbitTakeoff");
+		case FStarflightEmulatorState::GameOps:                  return TEXT("GameOps");
+		default:                                                 return TEXT("Unknown");
+		}
+	}
+}
 
 UStarflightEmulatorSubsystem::UStarflightEmulatorSubsystem()
 	: bEmulatorRunning(false)
@@ -25,6 +53,18 @@ void UStarflightEmulatorSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 		HandleRotoscope(BGRA, Width, Height, Pitch);
 	});
 
+	SetStatusSink([](const FStarflightStatus& Status)
+	{
+		// Called from emulator thread; bounce to game thread for UE logging.
+		AsyncTask(ENamedThreads::GameThread, [Status]()
+		{
+			const TCHAR* StateName = StateToString(Status.State);
+			UE_LOG(LogStarflightEmulatorSubsystem, Log,
+				TEXT("Starflight status: %s (GameContext=%u, LastRunBitTag=%u)"),
+				StateName, Status.GameContext, Status.LastRunBitTag);
+		});
+	});
+
 	StartStarflight();
 	bEmulatorRunning.Store(true);
 
@@ -35,6 +75,7 @@ void UStarflightEmulatorSubsystem::Deinitialize()
 {
 	SetFrameSink(nullptr);
 	SetRotoscopeSink(nullptr);
+	SetStatusSink(nullptr);
 
 	if (bEmulatorRunning.Load())
 	{

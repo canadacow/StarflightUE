@@ -26,6 +26,8 @@ namespace
 	FrameSinkFn gFrameSink;
 	AudioSinkFn gAudioSink;
 	static RotoscopeSinkFn gRotoSink;
+	StatusSinkFn gStatusSink;
+	FStarflightStatus gLastStatus{ FStarflightEmulatorState::Off, 0u, 0u };
 	std::atomic<bool> gRunning{ false };
 	std::thread gWorker;
 	std::thread gGraphicsThread;
@@ -118,6 +120,13 @@ void StopStarflight()
 	GraphicsQuit();
 	if (gWorker.joinable()) gWorker.join();
 	if (gGraphicsThread.joinable()) gGraphicsThread.join();
+
+	// Report that the emulator is now off
+	FStarflightStatus status;
+	status.State = FStarflightEmulatorState::Off;
+	status.GameContext = 0;
+	status.LastRunBitTag = 0;
+	EmitStatus(status);
 }
 
 // Internal helpers to emit data (call these from emulator thread once wired)
@@ -129,6 +138,38 @@ void EmitFrame(const uint8_t* bgra, int w, int h, int pitch)
 		sink = gFrameSink;
 	}
 	if (sink) { sink(bgra, w, h, pitch); }
+}
+
+void SetStatusSink(StatusSinkFn cb)
+{
+	StatusSinkFn sink;
+	FStarflightStatus statusSnapshot;
+	{
+		std::lock_guard<std::mutex> lock(gSinksMutex);
+		gStatusSink = std::move(cb);
+		sink = gStatusSink;
+		statusSnapshot = gLastStatus;
+	}
+
+	// Immediately inform new listeners of the current status (default Off)
+	if (sink)
+	{
+		sink(statusSnapshot);
+	}
+}
+
+void EmitStatus(const FStarflightStatus& status)
+{
+	StatusSinkFn sink;
+	{
+		std::lock_guard<std::mutex> lock(gSinksMutex);
+		sink = gStatusSink;
+		gLastStatus = status;
+	}
+	if (sink)
+	{
+		sink(status);
+	}
 }
 
 static inline void EmitAudio(const int16_t* pcm, int frames, int rate, int channels)

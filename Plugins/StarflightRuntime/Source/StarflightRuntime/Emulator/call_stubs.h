@@ -71,6 +71,15 @@ struct Rotoscope {
     Rotoscope(PixelContents pc) : content(pc), EGAcolor(0), argb(0), blt_x(0), blt_y(0), blt_w(0), blt_h(0), bgColor(0), fgColor(0) {}
 };
 
+enum class OrbitState {
+    None,
+    Insertion,
+    Landing,
+    Takeoff,
+    Holding,
+    Orbit
+};
+
 struct FrameSync {
     bool inDrawAuxSys = false;
     bool inDrawStarMap = false;
@@ -86,8 +95,12 @@ struct FrameSync {
     bool pastHimus = false;
     bool inGameOps = false;
     bool inNebula = false;
+    bool inFlux = false;
     uint32_t currentPlanet = 0;
     uint32_t completedFrames = 0;
+    // Last RunBitPixel tag seen (from CSCR>EGA or .EGARUNBIT paths)
+    uint16_t lastRunBitTag = 0;
+    OrbitState currentOrbitState = OrbitState::None;
     std::chrono::steady_clock::time_point maneuveringStartTime;
     std::chrono::steady_clock::time_point maneuveringEndTime;
     int32_t gameTickTimer;
@@ -217,15 +230,6 @@ struct StarMapSetup {
     vec2<int16_t> window;
 };
 
-enum class OrbitState {
-    None,
-    Insertion,
-    Landing,
-    Takeoff,
-    Holding,
-    Orbit
-};
-
 // Include instance.h for INSTANCEENTRY
 #include "instance.h"
 
@@ -250,7 +254,10 @@ static const int CGAToEGA[16] = {0, 2, 1, 9, 4, 8, 5, 11, 6, 10, 7, 3, 6, 14, 12
 inline uint16_t Peek16(int offset) { return 0; }
 inline void GraphicsSaveScreen() {}
 inline void GraphicsSetDeadReckoning(int16_t x, int16_t y, const std::vector<Icon>&, const std::vector<Icon>&, uint16_t, const StarMapSetup&, const std::vector<MissileRecordUnique>&, const std::vector<LaserRecord>&, const std::vector<Explosion>&) {}
-inline void GraphicsSetOrbitState(OrbitState state, vec3<float> sunPos = vec3<float>()) {}
+inline void GraphicsSetOrbitState(OrbitState state, vec3<float> sunPos = vec3<float>())
+{
+    frameSync.currentOrbitState = state;
+}
 inline void GraphicsInitPlanets(const std::vector<std::vector<uint8_t>>&) {}
 inline void GraphicsInitPlanets(const std::unordered_map<uint32_t, struct PlanetSurface>&) {}
 inline void GraphicsDeleteMissile(uint64_t id, const MissileRecord& mr) {}

@@ -32,6 +32,7 @@
 #include <stdarg.h>
 #include "Logging/LogMacros.h"
 #include "StarflightAssets.h"
+#include "StarflightBridge.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightEmulator, Log, All);
 
@@ -104,6 +105,124 @@ using namespace Diligent;
 
 // Global stub instance
 FrameSync frameSync;
+static bool s_shouldRecordText = false;
+
+// Forward declarations
+static FStarflightEmulatorState ComputeHighLevelState();
+static void UpdateAndEmitStatus();
+
+// Map internal emulator flags into a coarse, gameplay-friendly state.
+static FStarflightEmulatorState ComputeHighLevelState()
+{
+    // 0) Comms overlay: during PHRASE>CT capture
+    if (s_shouldRecordText)
+    {
+        return FStarflightEmulatorState::Comms;
+    }
+
+    // 1) Splash logos and starport Port-Pic are driven by RunBitPixel tags.
+    switch (frameSync.lastRunBitTag)
+    {
+        case 141: // First splash logo
+            return FStarflightEmulatorState::LOGO1;
+        case 54:  // Second logo
+            return FStarflightEmulatorState::LOGO2;
+        case 44:  // Port-Pic top
+        case 49:  // Port-Pic bottom
+            // Only treat as station while in starport context and not maneuvering away
+            if (frameSync.gameContext == 5 && !frameSync.maneuvering)
+            {
+                return FStarflightEmulatorState::Station;
+            }
+            break;
+        default:
+            break;
+    }
+
+    // 2b) Encounter context
+    if (frameSync.gameContext == 4)
+    {
+        return FStarflightEmulatorState::Encounter;
+    }
+
+    // 2) Game options overlay
+    if (frameSync.inGameOps)
+    {
+        return FStarflightEmulatorState::GameOps;
+    }
+
+    // 3) Starmap overlay
+    if (frameSync.inDrawStarMap)
+    {
+        return FStarflightEmulatorState::Starmap;
+    }
+
+    // 4) Orbit phases mapped from GraphicsSetOrbitState calls
+    switch (frameSync.currentOrbitState)
+    {
+        case OrbitState::Insertion:
+        case OrbitState::Landing:
+            return FStarflightEmulatorState::OrbitLanding;
+        case OrbitState::Takeoff:
+            return FStarflightEmulatorState::OrbitTakeoff;
+        case OrbitState::Holding:
+        case OrbitState::Orbit:
+            return FStarflightEmulatorState::Orbiting;
+        default:
+            break;
+    }
+
+    // 5b) InFlux (inside flux effect overlay)
+    if (frameSync.inFlux)
+    {
+        return FStarflightEmulatorState::InFlux;
+    }
+
+    // 5) Navigation – distinguish intra / inter stellar by gameContext
+    // ( 0 = planet surface, 1=orbit, 2=system, 3=hyperspace, 4=encounter, 5=starport)
+    if (frameSync.gameContext == 2)
+    {
+        return FStarflightEmulatorState::IntrastellarNavigation;
+    }
+    if (frameSync.gameContext == 3)
+    {
+        return FStarflightEmulatorState::InterstellarNavigation;
+    }
+
+    // 6) Landed on a planet surface
+    if (frameSync.gameContext == 0 && frameSync.currentPlanet != 0)
+    {
+        return FStarflightEmulatorState::OrbitLanded;
+    }
+
+    return FStarflightEmulatorState::Unknown;
+}
+
+// Compute high-level state and publish to Unreal when it changes
+static void UpdateAndEmitStatus()
+{
+    static FStarflightEmulatorState s_lastState = FStarflightEmulatorState::Off;
+
+    FStarflightEmulatorState newState = ComputeHighLevelState();
+    if (newState == s_lastState)
+    {
+        return;
+    }
+
+    s_lastState = newState;
+
+    FStarflightStatus status;
+    status.State = newState;
+    status.GameContext = frameSync.gameContext;
+    status.LastRunBitTag = static_cast<uint16_t>(frameSync.lastRunBitTag);
+
+    EmitStatus(status);
+
+    SF_Log("High-level state changed: %d (GameContext=%u, LastRunBitTag=%u)",
+        static_cast<int>(newState),
+        static_cast<unsigned>(status.GameContext),
+        static_cast<unsigned>(status.LastRunBitTag));
+}
 
 unsigned int debuglevel = 0;
 
@@ -1308,7 +1427,6 @@ extern std::atomic<bool> stopEmulationThread;
 uint16_t nparmsStackSi = 0;
 
 static uint64_t s_missileNonce = 0x1000000;
-static bool s_shouldRecordText = false;
 static bool s_secondFlag = false;
 static std::string s_recordedText = "";
 static std::vector<Icon> s_currentIconList;
@@ -1419,6 +1537,10 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
     wordName = FindWordCanFail(bx + 2, ovidx, true);
     overlayName = GetOverlayName(ovidx);
     wordValue = bx + 2;
+
+    // Track whether we're currently inside a flux effect module
+    // Overlay index 0x6d in directory.h is "FLUX-EFFECT ".
+    frameSync.inFlux = (ovidx == 0x6d);
 
     struct WordTime
     {
@@ -2470,6 +2592,13 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
                     //rs.splashData.seg = ds;
                     
                     rs.runBitData.tag = fileNum;
+
+                    // Track last RunBit image tag for high-level status (logos, port-pic, etc.)
+                    frameSync.lastRunBitTag = static_cast<uint16_t>(fileNum);
+                    SF_Log("RunBit (CSCR>EGA) tag set to %u", static_cast<unsigned>(frameSync.lastRunBitTag));
+
+                    // Update high-level state immediately after splash/logo load
+                    UpdateAndEmitStatus();
 
                     GraphicsSplash(ds, fileNum);
 
@@ -4584,6 +4713,12 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             Rotoscope rc{};
             rc.content = RunBitPixel;
             rc.runBitData.tag = CurrentImageTagForHybridBlit;
+            // Track last RunBit image tag for high-level status (logos, port-pic, etc.)
+            frameSync.lastRunBitTag = CurrentImageTagForHybridBlit;
+            SF_Log(".EGARUNBIT RunBit tag set to %u", static_cast<unsigned>(frameSync.lastRunBitTag));
+
+            // Update high-level state immediately after hybrid blit (Port-Pic, etc.)
+            UpdateAndEmitStatus();
             rc.blt_w = WBLT;
 
             int xofs = 0;
@@ -5347,6 +5482,10 @@ enum RETURNCODE Call(unsigned short addr, unsigned short bx)
             return EMULATOR_ERROR;
         break;
     }
+
+    // Re-evaluate high-level state once per Forth step as a fallback
+    UpdateAndEmitStatus();
+
     return ret;
 }
 
@@ -5467,6 +5606,29 @@ enum RETURNCODE Step()
     //SF_Log("  0x%04x  %15s   %s\n", regsi, GetOverlayName(regsi, ovidx), FindWord(bx+2, ovidx));
 
     enum RETURNCODE ret = Call(execaddr, bx);
+
+    // Compute high-level state and publish to Unreal when it changes
+    {
+        static FStarflightEmulatorState s_lastState = FStarflightEmulatorState::Unknown;
+        FStarflightEmulatorState newState = ComputeHighLevelState();
+        if (newState != s_lastState)
+        {
+            s_lastState = newState;
+
+            FStarflightStatus status;
+            status.State = newState;
+            status.GameContext = frameSync.gameContext;
+            status.LastRunBitTag = static_cast<uint16_t>(frameSync.lastRunBitTag);
+
+            EmitStatus(status);
+
+            SF_Log("High-level state changed: %d (GameContext=%u, LastRunBitTag=%u)",
+                static_cast<int>(newState),
+                static_cast<unsigned>(status.GameContext),
+                static_cast<unsigned>(status.LastRunBitTag));
+        }
+    }
+
     return ret;
 }
 

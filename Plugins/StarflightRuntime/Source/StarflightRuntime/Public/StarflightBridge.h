@@ -22,4 +22,36 @@ using RotoscopeSinkFn = std::function<void(const uint8_t* bgra, int width, int h
 STARFLIGHTRUNTIME_API void SetRotoscopeSink(RotoscopeSinkFn cb);
 STARFLIGHTRUNTIME_API void EmitRotoscope(const uint8_t* bgra, int w, int h, int pitch);
 
+// High-level emulator state for gameplay & scripting
+enum class FStarflightEmulatorState : uint8_t
+{
+	Off = 0,
+	Unknown,
+	LOGO1,
+	LOGO2,
+	Station,
+	Starmap,
+	Comms,
+	Encounter,
+	InFlux,
+	IntrastellarNavigation,
+	InterstellarNavigation,
+	Orbiting,
+	OrbitLanding,
+	OrbitLanded,
+	OrbitTakeoff,
+	GameOps,
+};
+
+struct FStarflightStatus
+{
+	FStarflightEmulatorState State = FStarflightEmulatorState::Unknown;
+	uint32_t GameContext = 0;     // Copy of frameSync.gameContext
+	uint16_t LastRunBitTag = 0;   // Copy of frameSync.lastRunBitTag (RunBitPixel tag)
+};
+
+using StatusSinkFn = std::function<void(const FStarflightStatus&)>;
+
+STARFLIGHTRUNTIME_API void SetStatusSink(StatusSinkFn cb);
+STARFLIGHTRUNTIME_API void EmitStatus(const FStarflightStatus& status);
 
