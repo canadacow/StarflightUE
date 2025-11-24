@@ -2,14 +2,23 @@
 #include "InputCoreTypes.h"
 #include "StarflightRuntime/Public/StarflightInput.h"
 #include "StarflightRuntime/Public/StarflightBridge.h"
+#include "StarflightRuntime/Public/StarflightEmulatorSubsystem.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Blueprint/UserWidget.h"
 #include "StarflightMainMenuWidget.h"
+#include "EngineUtils.h"
 
 bool AStarflightPlayerController::InputKey(const FInputKeyEventArgs& EventArgs)
 {
     const FKey Key = EventArgs.Key;
     const bool bPressed = (EventArgs.Event == IE_Pressed || EventArgs.Event == IE_Repeat);
+
+    // Toggle camera/view target with Tab (switch between default view and StationCamera)
+    if (bPressed && Key == EKeys::Tab)
+    {
+        ToggleStationCamera();
+        return true;
+    }
 
     // Toggle main menu with Escape
     if (bPressed && Key == EKeys::Escape)
@@ -47,6 +56,8 @@ void AStarflightPlayerController::BeginPlay()
 
     // Create main menu widget
     CreateMainMenuWidget();
+    // Try to auto-bind StationCamera once at startup
+    ResolveStationCamera();
 
     // Show main menu on start
     //ShowMainMenu();
@@ -184,7 +195,7 @@ void AStarflightPlayerController::HideMainMenu()
     if (MainMenuWidget)
     {
         MainMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
-        
+
         // If game is running, switch back to game-only mode
         if (bGameRunning)
         {
@@ -193,5 +204,113 @@ void AStarflightPlayerController::HideMainMenu()
             SetInputMode(Mode);
             bShowMouseCursor = false;
         }
+    }
+}
+
+// ============================================
+// Camera / View Target Management
+// ============================================
+
+void AStarflightPlayerController::ResolveStationCamera()
+{
+    if (StationCamera)
+    {
+        return;
+    }
+
+    if (UWorld* World = GetWorld())
+    {
+        for (TActorIterator<AActor> It(World); It; ++It)
+        {
+            const bool bHasTag = It->ActorHasTag(FName(TEXT("StationCamera")));
+            const bool bNameMatches = It->GetName().StartsWith(TEXT("StationCamera"));
+            if (bHasTag || bNameMatches)
+            {
+                StationCamera = *It;
+                UE_LOG(LogTemp, Log, TEXT("Bound StationCamera to actor: %s"), *StationCamera->GetName());
+                break;
+            }
+        }
+    }
+}
+
+void AStarflightPlayerController::ToggleStationCamera()
+{
+    // Query the emulator's current high-level state from the subsystem.
+    FStarflightEmulatorState CurrentState = FStarflightEmulatorState::Unknown;
+    if (UGameInstance* GameInstance = GetGameInstance())
+    {
+        if (UStarflightEmulatorSubsystem* EmulatorSubsystem = GameInstance->GetSubsystem<UStarflightEmulatorSubsystem>())
+        {
+            CurrentState = EmulatorSubsystem->GetCurrentState();
+        }
+    }
+
+    // If the state is Unknown, always snap back to the ComputerRoom (default view)
+    // and do not allow entering the Station camera.
+    if (CurrentState == FStarflightEmulatorState::Unknown)
+    {
+        if (bUsingStationCamera)
+        {
+            if (!DefaultViewTarget)
+            {
+                DefaultViewTarget = GetViewTarget();
+                if (!DefaultViewTarget)
+                {
+                    DefaultViewTarget = GetPawn();
+                }
+            }
+
+            if (DefaultViewTarget)
+            {
+                SetViewTargetWithBlend(DefaultViewTarget, 0.5f);
+            }
+            bUsingStationCamera = false;
+        }
+
+        // No toggling allowed while the emulator reports an Unknown state.
+        return;
+    }
+
+    // Only allow transitions when the emulator reports we are in the Station scene.
+    if (CurrentState != FStarflightEmulatorState::Station)
+    {
+        return;
+    }
+
+    // Cache the initial view target the first time we toggle
+    if (!DefaultViewTarget)
+    {
+        DefaultViewTarget = GetViewTarget();
+        if (!DefaultViewTarget)
+        {
+            DefaultViewTarget = GetPawn();
+        }
+    }
+
+    if (!bUsingStationCamera)
+    {
+        // Lazily auto-bind StationCamera if still not set
+        ResolveStationCamera();
+
+        if (!StationCamera)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("StationCamera is not set on StarflightPlayerController; cannot toggle camera."));
+            return;
+        }
+
+        SetViewTargetWithBlend(StationCamera, 0.5f);
+        bUsingStationCamera = true;
+    }
+    else
+    {
+        if (!DefaultViewTarget)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("DefaultViewTarget is not set; cannot return from station camera."));
+            return;
+        }
+
+        SetViewTargetWithBlend(DefaultViewTarget, 0.5f);
+        bUsingStationCamera = false;
     }
 }

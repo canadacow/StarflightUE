@@ -24,6 +24,7 @@ public class StarflightUE : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new string[]
         {
+            "CinematicCamera"
         });
     }
 }

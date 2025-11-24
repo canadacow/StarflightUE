@@ -6,6 +6,7 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Templates/Atomic.h"
 #include "Templates/Function.h"
+#include "StarflightBridge.h"
 #include "StarflightEmulatorSubsystem.generated.h"
 
 class UStarflightEmulatorSubsystem;
@@ -25,6 +26,12 @@ public:
 	virtual void Deinitialize() override;
 
 	bool IsEmulatorRunning() const;
+
+	/** Get the last reported high-level emulator state (game thread only). */
+	FStarflightEmulatorState GetCurrentState() const { return LastStatus.State; }
+
+	/** Convenience helper: true when the emulator reports we are in the Station scene. */
+	bool IsInStation() const { return LastStatus.State == FStarflightEmulatorState::Station; }
 
 	FDelegateHandle RegisterFrameListener(FStarflightFrameCallback&& Callback);
 	void UnregisterFrameListener(FDelegateHandle Handle);
@@ -58,6 +65,9 @@ private:
 	TArray<FStarflightRotoscopeListenerEntry> RotoscopeListeners;
 
 	TAtomic<bool> bEmulatorRunning;
+
+	// Last status reported by the emulator; updated on the game thread only.
+	FStarflightStatus LastStatus;
 };
 
 

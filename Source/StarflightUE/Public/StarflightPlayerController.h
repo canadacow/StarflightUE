@@ -6,6 +6,7 @@
 #include "StarflightPlayerController.generated.h"
 
 class UStarflightMainMenuWidget;
+class AActor;
 
 UCLASS(BlueprintType, Blueprintable)
 class STARFLIGHTUE_API AStarflightPlayerController : public APlayerController
@@ -106,4 +107,25 @@ private:
 
     void UpdateModifierState(const FKey& Key, bool bPressed);
     void CreateMainMenuWidget();
+
+    // ============================================
+    // Camera / View Target Management
+    // ============================================
+
+    /** Optional camera actor to use for the Space Station / alternate view */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Camera", meta = (AllowPrivateAccess = "true"))
+    AActor* StationCamera = nullptr;
+
+    /** Cached default view target so we can return after toggling to StationCamera */
+    UPROPERTY()
+    AActor* DefaultViewTarget = nullptr;
+
+    /** Whether we are currently viewing through StationCamera */
+    bool bUsingStationCamera = false;
+
+    /** Toggle between the default view target and StationCamera */
+    void ToggleStationCamera();
+
+    /** Find and cache the StationCamera actor by tag or name if not already set. */
+    void ResolveStationCamera();
 };

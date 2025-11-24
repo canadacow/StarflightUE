@@ -53,11 +53,13 @@ void UStarflightEmulatorSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 		HandleRotoscope(BGRA, Width, Height, Pitch);
 	});
 
-	SetStatusSink([](const FStarflightStatus& Status)
+	SetStatusSink([this](const FStarflightStatus& Status)
 	{
-		// Called from emulator thread; bounce to game thread for UE logging.
-		AsyncTask(ENamedThreads::GameThread, [Status]()
+		// Called from emulator thread; bounce to game thread for state tracking and UE logging.
+		AsyncTask(ENamedThreads::GameThread, [this, Status]()
 		{
+			LastStatus = Status;
+
 			const TCHAR* StateName = StateToString(Status.State);
 			UE_LOG(LogStarflightEmulatorSubsystem, Log,
 				TEXT("Starflight status: %s (GameContext=%u, LastRunBitTag=%u)"),
