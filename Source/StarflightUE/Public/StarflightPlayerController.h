@@ -6,6 +6,10 @@
 #include "StarflightPlayerController.generated.h"
 
 class UStarflightMainMenuWidget;
+class UUserWidget;
+class UImage;
+class UMaterialInstanceDynamic;
+class UTexture;
 class AActor;
 
 UCLASS(BlueprintType, Blueprintable)
@@ -13,9 +17,12 @@ class STARFLIGHTUE_API AStarflightPlayerController : public APlayerController
 {
     GENERATED_BODY()
 public:
+    AStarflightPlayerController();
+
     virtual bool InputKey(const FInputKeyEventArgs& EventArgs) override;
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void Tick(float DeltaSeconds) override;
 
     // ============================================
     // Game Control
@@ -128,4 +135,53 @@ private:
 
     /** Find and cache the StationCamera actor by tag or name if not already set. */
     void ResolveStationCamera();
+
+    /** Cross-fade to a new view target without moving the camera through world space. */
+    void CrossfadeToViewTarget(AActor* NewTarget);
+
+    // ============================================
+    // Crossfade UI (UMG-backed, C++ driven)
+    // ============================================
+
+    /** Widget class providing a full-screen image with M_CameraCrossfade as its brush material. */
+    UPROPERTY(EditAnywhere, Category = "Starflight|Camera")
+    TSubclassOf<UUserWidget> CameraCrossfadeWidgetClass;
+
+    /** Runtime instance of the crossfade widget. */
+    UPROPERTY()
+    UUserWidget* CameraCrossfadeWidget = nullptr;
+
+    /** The image inside the widget we apply the dynamic material to (named CrossfadeImage in the UMG asset). */
+    UPROPERTY()
+    UImage* CameraCrossfadeImage = nullptr;
+
+    /** Dynamic instance of M_CameraCrossfade used for blending the two camera textures. */
+    UPROPERTY()
+    UMaterialInstanceDynamic* CameraCrossfadeMID = nullptr;
+
+    /** Texture representing the ComputerRoom view (e.g., a render target). */
+    UPROPERTY(EditAnywhere, Category = "Starflight|Camera")
+    UTexture* ComputerRoomTexture = nullptr;
+
+    /** Texture representing the Station view (e.g., a render target). */
+    UPROPERTY(EditAnywhere, Category = "Starflight|Camera")
+    UTexture* StationTexture = nullptr;
+
+    /** Current 0..1 blend between the two camera textures. */
+    float CrossfadeAlpha = 0.0f;
+
+    /** Total duration of the crossfade, in seconds. */
+    float CrossfadeDuration = 0.5f;
+
+    /** True while a crossfade is in progress. */
+    bool bCrossfading = false;
+
+    /** Per-frame crossfade update driven from Tick. */
+    void TickCrossfade(float DeltaSeconds);
+
+    /** Ensure render targets / scene captures for crossfade exist. */
+    void EnsureCrossfadeSetup();
+
+    /** Log the current crossfade setup state for debugging. */
+    void LogCrossfadeSetup(const TCHAR* Context) const;
 };
