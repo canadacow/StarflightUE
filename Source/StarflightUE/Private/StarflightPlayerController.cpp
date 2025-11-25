@@ -467,19 +467,25 @@ void AStarflightPlayerController::ResizeRenderTargetIfNeeded(UTextureRenderTarge
 
 void AStarflightPlayerController::UpdateCaptureTransforms()
 {
-    FVector ViewLocation = FVector::ZeroVector;
-    FRotator ViewRotation = FRotator::ZeroRotator;
-    GetPlayerViewPoint(ViewLocation, ViewRotation);
+    // Hard requirement: we must have a controlled pawn with a camera component.
+    APawn* LocalPawn = GetPawn();
+    checkf(LocalPawn != nullptr,
+        TEXT("AStarflightPlayerController::UpdateCaptureTransforms: GetPawn() returned null; expected a pawn for ComputerRoom view."));
+
+    UCameraComponent* PawnCam = LocalPawn->FindComponentByClass<UCameraComponent>();
+    checkf(PawnCam != nullptr,
+        TEXT("AStarflightPlayerController::UpdateCaptureTransforms: Pawn '%s' has no UCameraComponent; cannot drive ComputerRoom capture."),
+        *LocalPawn->GetName());
+
+    const FVector ViewLocation = PawnCam->GetComponentLocation();
+    const FRotator ViewRotation = PawnCam->GetComponentRotation();
+    const float ViewFOV = PawnCam->FieldOfView;
 
     if (ComputerRoomCapture && ComputerRoomCapture->GetCaptureComponent2D())
     {
         ComputerRoomCapture->SetActorLocation(ViewLocation);
         ComputerRoomCapture->SetActorRotation(ViewRotation);
-
-        if (PlayerCameraManager)
-        {
-            ComputerRoomCapture->GetCaptureComponent2D()->FOVAngle = PlayerCameraManager->GetFOVAngle();
-        }
+        ComputerRoomCapture->GetCaptureComponent2D()->FOVAngle = ViewFOV;
     }
 
     if (StationCapture && StationCapture->GetCaptureComponent2D() && StationCamera)
@@ -487,13 +493,20 @@ void AStarflightPlayerController::UpdateCaptureTransforms()
         StationCapture->SetActorLocation(StationCamera->GetActorLocation());
         StationCapture->SetActorRotation(StationCamera->GetActorRotation());
 
-        if (const ACameraActor* StationCamActor = Cast<ACameraActor>(StationCamera))
+        float StationFOV = 90.0f;
+        if (const UCameraComponent* StationCamComp = StationCamera->FindComponentByClass<UCameraComponent>())
+        {
+            StationFOV = StationCamComp->FieldOfView;
+        }
+        else if (const ACameraActor* StationCamActor = Cast<ACameraActor>(StationCamera))
         {
             if (const UCameraComponent* CamComp = StationCamActor->GetCameraComponent())
             {
-                StationCapture->GetCaptureComponent2D()->FOVAngle = CamComp->FieldOfView;
+                StationFOV = CamComp->FieldOfView;
             }
         }
+
+        StationCapture->GetCaptureComponent2D()->FOVAngle = StationFOV;
     }
 }
 
