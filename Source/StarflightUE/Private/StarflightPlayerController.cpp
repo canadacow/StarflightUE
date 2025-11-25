@@ -10,11 +10,16 @@
 #include "Components/Image.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/SceneCaptureComponent2D.h"
+#include "Camera/CameraComponent.h"
+#include "Camera/CameraActor.h"
+#include "Styling/SlateBrush.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/Material.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/SceneCapture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 // Debug: force the crossfade overlay to be visible at all times so we can verify it actually draws.
 static constexpr bool GDebugForceCrossfadeAlwaysVisible = false;
 // Debug: force the crossfade image to show solid red (bypasses material logic entirely).
@@ -139,7 +144,8 @@ void AStarflightPlayerController::BeginPlay()
                         UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController: Adjusted CrossfadeImage canvas anchors to full-screen."));
                     }
 
-                    UObject* ResObj = CameraCrossfadeImage->Brush.GetResourceObject();
+                    const FSlateBrush& ImageBrush = CameraCrossfadeImage->GetBrush();
+                    UObject* ResObj = ImageBrush.GetResourceObject();
                     UMaterialInterface* BaseMat = Cast<UMaterialInterface>(ResObj);
                     if (!BaseMat)
                     {
@@ -197,6 +203,8 @@ void AStarflightPlayerController::BeginPlay()
 void AStarflightPlayerController::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    EnsureCrossfadeSetup();
+    UpdateCaptureTransforms();
     TickCrossfade(DeltaSeconds);
 }
 
@@ -417,6 +425,78 @@ void AStarflightPlayerController::LogCrossfadeSetup(const TCHAR* Context) const
     }
 }
 
+FIntPoint AStarflightPlayerController::GetCrossfadeViewportSize() const
+{
+    FIntPoint Size(1280, 720);
+
+    if (const UWorld* World = GetWorld())
+    {
+        if (UGameViewportClient* ViewportClient = World->GetGameViewport())
+        {
+            if (FViewport* Viewport = ViewportClient->Viewport)
+            {
+                const FIntPoint ViewportSize = Viewport->GetSizeXY();
+                if (ViewportSize.X > 0 && ViewportSize.Y > 0)
+                {
+                    Size = ViewportSize;
+                }
+            }
+        }
+    }
+
+    return Size;
+}
+
+void AStarflightPlayerController::ResizeRenderTargetIfNeeded(UTextureRenderTarget2D*& Target, const FIntPoint& DesiredSize, const TCHAR* DebugName)
+{
+    if (!Target)
+    {
+        return;
+    }
+
+    const int32 Width = FMath::Max(DesiredSize.X, 1);
+    const int32 Height = FMath::Max(DesiredSize.Y, 1);
+
+    if (Target->SizeX != Width || Target->SizeY != Height)
+    {
+        Target->ResizeTarget(Width, Height);
+        UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Resized %s render target to %dx%d"),
+            DebugName ? DebugName : TEXT("RenderTarget"), Width, Height);
+    }
+}
+
+void AStarflightPlayerController::UpdateCaptureTransforms()
+{
+    FVector ViewLocation = FVector::ZeroVector;
+    FRotator ViewRotation = FRotator::ZeroRotator;
+    GetPlayerViewPoint(ViewLocation, ViewRotation);
+
+    if (ComputerRoomCapture && ComputerRoomCapture->GetCaptureComponent2D())
+    {
+        ComputerRoomCapture->SetActorLocation(ViewLocation);
+        ComputerRoomCapture->SetActorRotation(ViewRotation);
+
+        if (PlayerCameraManager)
+        {
+            ComputerRoomCapture->GetCaptureComponent2D()->FOVAngle = PlayerCameraManager->GetFOVAngle();
+        }
+    }
+
+    if (StationCapture && StationCapture->GetCaptureComponent2D() && StationCamera)
+    {
+        StationCapture->SetActorLocation(StationCamera->GetActorLocation());
+        StationCapture->SetActorRotation(StationCamera->GetActorRotation());
+
+        if (const ACameraActor* StationCamActor = Cast<ACameraActor>(StationCamera))
+        {
+            if (const UCameraComponent* CamComp = StationCamActor->GetCameraComponent())
+            {
+                StationCapture->GetCaptureComponent2D()->FOVAngle = CamComp->FieldOfView;
+            }
+        }
+    }
+}
+
 void AStarflightPlayerController::EnsureCrossfadeSetup()
 {
     UWorld* World = GetWorld();
@@ -425,11 +505,15 @@ void AStarflightPlayerController::EnsureCrossfadeSetup()
         return;
     }
 
+    const FIntPoint DesiredSize = GetCrossfadeViewportSize();
+    const int32 Width = FMath::Max(DesiredSize.X, 1);
+    const int32 Height = FMath::Max(DesiredSize.Y, 1);
+
     // Create render targets if needed
     if (!ComputerRoomTexture)
     {
         UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(this, TEXT("RT_ComputerRoom"));
-        RT->InitAutoFormat(1280, 720);
+        RT->InitAutoFormat(Width, Height);
         RT->RenderTargetFormat = RTF_RGBA8;
         RT->ClearColor = FLinearColor::Black;
         RT->UpdateResourceImmediate(true);
@@ -443,38 +527,46 @@ void AStarflightPlayerController::EnsureCrossfadeSetup()
             ViewActor = GetPawn();
         }
         if (ViewActor)
-        {
-            ASceneCapture2D* Capture = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(),
-                ViewActor->GetActorLocation(), ViewActor->GetActorRotation());
-            if (Capture)
             {
-                Capture->GetCaptureComponent2D()->TextureTarget = RT;
-                Capture->GetCaptureComponent2D()->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
-                Capture->GetCaptureComponent2D()->bCaptureEveryFrame = true;
-                UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Spawned ComputerRoom SceneCapture2D."));
+                ComputerRoomCapture = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(),
+                    ViewActor->GetActorLocation(), ViewActor->GetActorRotation());
+                if (ComputerRoomCapture)
+                {
+                    ComputerRoomCapture->GetCaptureComponent2D()->TextureTarget = RT;
+                    ComputerRoomCapture->GetCaptureComponent2D()->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+                    ComputerRoomCapture->GetCaptureComponent2D()->bCaptureEveryFrame = true;
+                    UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Spawned ComputerRoom SceneCapture2D."));
+                }
             }
-        }
+    }
+    else
+    {
+        ResizeRenderTargetIfNeeded(ComputerRoomTexture, DesiredSize, TEXT("ComputerRoomTexture"));
     }
 
     if (!StationTexture && StationCamera)
     {
         UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(this, TEXT("RT_Station"));
-        RT->InitAutoFormat(1280, 720);
+        RT->InitAutoFormat(Width, Height);
         RT->RenderTargetFormat = RTF_RGBA8;
         RT->ClearColor = FLinearColor::Black;
         RT->UpdateResourceImmediate(true);
         StationTexture = RT;
         UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Created StationTexture render target."));
 
-        ASceneCapture2D* Capture = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(),
+        StationCapture = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(),
             StationCamera->GetActorLocation(), StationCamera->GetActorRotation());
-        if (Capture)
+        if (StationCapture)
         {
-            Capture->GetCaptureComponent2D()->TextureTarget = RT;
-            Capture->GetCaptureComponent2D()->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
-            Capture->GetCaptureComponent2D()->bCaptureEveryFrame = true;
+            StationCapture->GetCaptureComponent2D()->TextureTarget = RT;
+            StationCapture->GetCaptureComponent2D()->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+            StationCapture->GetCaptureComponent2D()->bCaptureEveryFrame = true;
             UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Spawned Station SceneCapture2D."));
         }
+    }
+    else if (StationTexture)
+    {
+        ResizeRenderTargetIfNeeded(StationTexture, DesiredSize, TEXT("StationTexture"));
     }
 }
 

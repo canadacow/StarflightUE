@@ -10,6 +10,8 @@ class UUserWidget;
 class UImage;
 class UMaterialInstanceDynamic;
 class UTexture;
+class UTextureRenderTarget2D;
+class ASceneCapture2D;
 class AActor;
 
 UCLASS(BlueprintType, Blueprintable)
@@ -159,13 +161,21 @@ private:
     UPROPERTY()
     UMaterialInstanceDynamic* CameraCrossfadeMID = nullptr;
 
-    /** Texture representing the ComputerRoom view (e.g., a render target). */
-    UPROPERTY(EditAnywhere, Category = "Starflight|Camera")
-    UTexture* ComputerRoomTexture = nullptr;
+    /** Render target for the ComputerRoom view. */
+    UPROPERTY()
+    UTextureRenderTarget2D* ComputerRoomTexture = nullptr;
 
-    /** Texture representing the Station view (e.g., a render target). */
-    UPROPERTY(EditAnywhere, Category = "Starflight|Camera")
-    UTexture* StationTexture = nullptr;
+    /** Render target for the Station view. */
+    UPROPERTY()
+    UTextureRenderTarget2D* StationTexture = nullptr;
+
+    /** Scene capture that mirrors the active player camera (ComputerRoom). */
+    UPROPERTY()
+    ASceneCapture2D* ComputerRoomCapture = nullptr;
+
+    /** Scene capture that mirrors the Station camera. */
+    UPROPERTY()
+    ASceneCapture2D* StationCapture = nullptr;
 
     /** Current 0..1 blend between the two camera textures. */
     float CrossfadeAlpha = 0.0f;
@@ -184,4 +194,13 @@ private:
 
     /** Log the current crossfade setup state for debugging. */
     void LogCrossfadeSetup(const TCHAR* Context) const;
+
+    /** Retrieve the viewport size we should match for the render targets. */
+    FIntPoint GetCrossfadeViewportSize() const;
+
+    /** Resize (or recreate) a render target to the desired size if needed. */
+    void ResizeRenderTargetIfNeeded(class UTextureRenderTarget2D*& Target, const FIntPoint& DesiredSize, const TCHAR* DebugName);
+
+    /** Synchronize the capture actors with their corresponding real cameras. */
+    void UpdateCaptureTransforms();
 };
