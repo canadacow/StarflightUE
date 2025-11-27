@@ -15,6 +15,7 @@ class UTextureRenderTarget2D;
 class ASceneCapture2D;
 class AActor;
 class SWindow;
+class USceneCaptureComponent2D;
 
 UCLASS(BlueprintType, Blueprintable)
 class STARFLIGHTUE_API AStarflightPlayerController : public APlayerController
@@ -188,12 +189,6 @@ private:
     /** True while a crossfade is in progress. */
     bool bCrossfading = false;
 
-    /** Latest Slate backbuffer texture as provided by OnBackBufferReadyToPresent. */
-    FTexture2DRHIRef ViewportTextureRHI;
-
-    /** Handle for the Slate backbuffer delegate so we can unregister on EndPlay. */
-    FDelegateHandle BackBufferReadyHandle;
-
     /** Per-frame crossfade update driven from Tick. */
     void TickCrossfade(float DeltaSeconds);
 
@@ -212,9 +207,7 @@ private:
     /** Synchronize the capture actors with their corresponding real cameras. */
     void UpdateCaptureTransforms();
 
-    /** Game-thread entry to request the next backbuffer copy (flag consumed in OnBackBufferReadyToPresent). */
-    void CaptureComputerRoomBackbuffer();
+    /** Copy lighting / post-process / show-flag settings from the main view into a capture component. */
+    void SyncCaptureSettingsWithMainView(USceneCaptureComponent2D* CaptureComp) const;
 
-    /** Debug helper: dump the ComputerRoom render target to disk as a PNG. */
-    void DumpComputerRoomTextureToDisk();
 };

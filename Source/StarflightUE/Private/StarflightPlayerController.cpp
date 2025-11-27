@@ -21,26 +21,11 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
-#include "RHICommandList.h"
-#include "RHIResources.h"
-#include "IImageWrapper.h"
-#include "IImageWrapperModule.h"
-#include "Modules/ModuleManager.h"
-#include "Misc/FileHelper.h"
-#include "Misc/Paths.h"
-#include "HAL/FileManager.h"
 #include "RenderCore.h"
-#include "Framework/Application/SlateApplication.h"
-#include "Rendering/SlateRenderer.h"
-#include "Async/TaskGraphInterfaces.h"
-#include "Rendering/Texture2DResource.h"
 // Debug: force the crossfade overlay to be visible at all times so we can verify it actually draws.
 static constexpr bool GDebugForceCrossfadeAlwaysVisible = false;
 // Debug: force the crossfade image to show solid red (bypasses material logic entirely).
 static constexpr bool GDebugForceCrossfadeImageRed = false;
-// Debug: dump ComputerRoomTexture frames to disk when capturing backbuffer.
-static constexpr bool GDebugDumpComputerRoomFrames = true;
-static int32 GComputerRoomFrameDumpCounter = 0;
 
 AStarflightPlayerController::AStarflightPlayerController()
 {
@@ -214,53 +199,6 @@ void AStarflightPlayerController::BeginPlay()
     SetInputMode(Mode);
     bShowMouseCursor = true;
 
-    // Register backbuffer callback so we can track the current Slate backbuffer.
-    if (FSlateApplication::IsInitialized())
-    {
-        if (FSlateRenderer* Renderer = (FSlateRenderer*)FSlateApplication::Get().GetRenderer())
-        {
-            TWeakObjectPtr<AStarflightPlayerController> WeakThis(this);
-            BackBufferReadyHandle = Renderer->OnBackBufferReadyToPresent().AddLambda(
-                [WeakThis](SWindow& SlateWindow, const FTexture2DRHIRef& BackBuffer)
-                {
-                    if (!WeakThis.IsValid())
-                    {
-                        return;
-                    }
-
-                    if (!SlateWindow.IsActive())
-                    {
-                        return;
-                    }
-
-                    if (!BackBuffer.IsValid())
-                    {
-                        UE_LOG(LogTemp, Warning,
-                            TEXT("OnBackBufferReadyToPresent: BackBuffer is invalid; skipping update."));
-                        return;
-                    }
-
-                    AStarflightPlayerController* StrongThis = WeakThis.Get();
-                    StrongThis->ViewportTextureRHI = BackBuffer;
-
-                    if (StrongThis->ComputerRoomTexture)
-                    {
-                        StrongThis->ComputerRoomTexture->ResizeTarget(
-                            StrongThis->ViewportTextureRHI->GetSizeX(),
-                            StrongThis->ViewportTextureRHI->GetSizeY());
-                    }
-
-                    UE_LOG(LogTemp, Verbose,
-                        TEXT("OnBackBufferReadyToPresent: Updated ViewportTextureRHI and resized ComputerRoomTexture."));
-
-                    StrongThis->CaptureComputerRoomBackbuffer();
-                });
-
-            UE_LOG(LogTemp, Warning,
-                TEXT("AStarflightPlayerController: Registered OnBackBufferReadyToPresent delegate."));
-        }
-    }
-
     UE_LOG(LogTemp, Warning, TEXT("=== AStarflightPlayerController::BeginPlay END ==="));
 }
 
@@ -274,19 +212,6 @@ void AStarflightPlayerController::Tick(float DeltaSeconds)
 
 void AStarflightPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-    // Unregister backbuffer callback
-    if (FSlateApplication::IsInitialized())
-    {
-        if (FSlateRenderer* Renderer = (FSlateRenderer*)FSlateApplication::Get().GetRenderer())
-        {
-            if (BackBufferReadyHandle.IsValid())
-            {
-                Renderer->OnBackBufferReadyToPresent().Remove(BackBufferReadyHandle);
-                BackBufferReadyHandle.Reset();
-            }
-        }
-    }
-
     StopStarflightGame();
     Super::EndPlay(EndPlayReason);
 }
@@ -544,37 +469,25 @@ void AStarflightPlayerController::ResizeRenderTargetIfNeeded(UTextureRenderTarge
 
 void AStarflightPlayerController::UpdateCaptureTransforms()
 {
-    // Hard requirement: we must have a valid PlayerCameraManager driving the final view.
-    checkf(PlayerCameraManager != nullptr,
-        TEXT("AStarflightPlayerController::UpdateCaptureTransforms: PlayerCameraManager is null; expected a valid camera manager."));
+    // Keep both ComputerRoom and Station captures in sync with their respective cameras.
 
-    // Final view used by the main viewport.
-    const FVector PCM_Location  = PlayerCameraManager->GetCameraLocation();
-    const FRotator PCM_Rotation = PlayerCameraManager->GetCameraRotation();
-    const float   PCM_FOV       = PlayerCameraManager->GetFOVAngle();
-
-    // Also compute the pawn's CalcCamera result so we can compare.
-    FVector CalcLocation = PCM_Location;
-    FRotator CalcRotation = PCM_Rotation;
-    float    CalcFOV = PCM_FOV;
-
-    if (APawn* LocalPawn = GetPawn())
+    // ComputerRoom: mirror the final player camera view (PlayerCameraManager).
+    if (ComputerRoomCapture && PlayerCameraManager)
     {
-        FMinimalViewInfo ViewInfo;
-        LocalPawn->CalcCamera(0.0f, ViewInfo);
-        CalcLocation = ViewInfo.Location;
-        CalcRotation = ViewInfo.Rotation;
-        CalcFOV      = ViewInfo.FOV;
+        const FVector  ViewLocation = PlayerCameraManager->GetCameraLocation();
+        const FRotator ViewRotation = PlayerCameraManager->GetCameraRotation();
+        const float    ViewFOV      = PlayerCameraManager->GetFOVAngle();
 
-        UE_LOG(LogTemp, Verbose,
-            TEXT("CameraDebug: PCM Loc=%s Rot=%s FOV=%.2f | CalcCamera Loc=%s Rot=%s FOV=%.2f"),
-            *PCM_Location.ToString(), *PCM_Rotation.ToString(), PCM_FOV,
-            *CalcLocation.ToString(), *CalcRotation.ToString(), CalcFOV);
+        ComputerRoomCapture->SetActorLocation(ViewLocation);
+        ComputerRoomCapture->SetActorRotation(ViewRotation);
+
+        if (USceneCaptureComponent2D* CaptureComp = ComputerRoomCapture->GetCaptureComponent2D())
+        {
+            CaptureComp->FOVAngle = ViewFOV;
+        }
     }
 
-    // We only need to keep the Station capture in sync; the ComputerRoom texture
-    // now comes directly from a GPU backbuffer copy and no longer uses a capture.
-
+    // Station: mirror the StationCamera actor.
     if (StationCapture && StationCapture->GetCaptureComponent2D() && StationCamera)
     {
         StationCapture->SetActorLocation(StationCamera->GetActorLocation());
@@ -597,6 +510,37 @@ void AStarflightPlayerController::UpdateCaptureTransforms()
     }
 }
 
+void AStarflightPlayerController::SyncCaptureSettingsWithMainView(USceneCaptureComponent2D* CaptureComp) const
+{
+    if (!CaptureComp)
+    {
+        return;
+    }
+
+    const UWorld* World = GetWorld();
+    if (World)
+    {
+        if (UGameViewportClient* ViewportClient = World->GetGameViewport())
+        {
+            // Match the main game viewport's show flags so lighting / GI / reflections
+            // and other detail settings (shadows, fog, etc.) line up with the player view.
+            CaptureComp->ShowFlags = ViewportClient->EngineShowFlags;
+        }
+    }
+
+    if (PlayerCameraManager)
+    {
+        // Copy post-process settings (exposure, tone mapping, LUTs, etc.) from the main camera.
+        const FMinimalViewInfo& MainPOV = PlayerCameraManager->GetCameraCacheView();
+        CaptureComp->PostProcessSettings    = MainPOV.PostProcessSettings;
+        CaptureComp->PostProcessBlendWeight = 1.0f;
+    }
+
+    // Ensure we use ray tracing when the renderer is configured to do so,
+    // so reflections / GI match the main view.
+    CaptureComp->bUseRayTracingIfEnabled = true;
+}
+
 void AStarflightPlayerController::EnsureCrossfadeSetup()
 {
     UWorld* World = GetWorld();
@@ -609,22 +553,48 @@ void AStarflightPlayerController::EnsureCrossfadeSetup()
     const int32 Width = FMath::Max(DesiredSize.X, 1);
     const int32 Height = FMath::Max(DesiredSize.Y, 1);
 
-    // Create render targets if needed
+    // Create render targets and scene captures if needed
     if (!ComputerRoomTexture)
     {
         UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(this, TEXT("RT_ComputerRoom"));
-        // Match the viewport's default HDR backbuffer format (PF_A2B10G10R10) so GPU copies succeed.
-        RT->bAutoGenerateMips = false;
-        RT->InitCustomFormat(Width, Height, PF_A2B10G10R10, /*bForceLinearGamma*/ false);
+        RT->InitAutoFormat(Width, Height);
+        RT->RenderTargetFormat = RTF_RGBA8;
         RT->ClearColor = FLinearColor::Black;
         RT->UpdateResourceImmediate(true);
         ComputerRoomTexture = RT;
-        UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Created ComputerRoomTexture (PF=%s, %dx%d)."),
-            *UEnum::GetValueAsString(RT->GetFormat()), Width, Height);
+        UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Created ComputerRoomTexture render target."));
+
+        // Spawn a SceneCapture2D that mirrors the active player camera (ComputerRoom view).
+        APawn* LocalPawn = GetPawn();
+        FVector CamLocation = FVector::ZeroVector;
+        FRotator CamRotation = FRotator::ZeroRotator;
+        if (PlayerCameraManager)
+        {
+            CamLocation = PlayerCameraManager->GetCameraLocation();
+            CamRotation = PlayerCameraManager->GetCameraRotation();
+        }
+        else if (LocalPawn)
+        {
+            CamLocation = LocalPawn->GetActorLocation();
+            CamRotation = LocalPawn->GetActorRotation();
+        }
+
+        if (UWorld* WW = GetWorld())
+        {
+            ComputerRoomCapture = WW->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(), CamLocation, CamRotation);
+            if (ComputerRoomCapture)
+            {
+                USceneCaptureComponent2D* CaptureComp = ComputerRoomCapture->GetCaptureComponent2D();
+                CaptureComp->TextureTarget      = RT;
+                CaptureComp->CaptureSource      = ESceneCaptureSource::SCS_FinalColorLDR;
+                CaptureComp->bCaptureEveryFrame = true;
+                SyncCaptureSettingsWithMainView(CaptureComp);
+                UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Spawned ComputerRoom SceneCapture2D."));
+            }
+        }
     }
     else
     {
-        // Preserve existing pixel format but keep size in sync.
         ResizeRenderTargetIfNeeded(ComputerRoomTexture, DesiredSize, TEXT("ComputerRoomTexture"));
     }
 
@@ -632,7 +602,8 @@ void AStarflightPlayerController::EnsureCrossfadeSetup()
     {
         UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(this, TEXT("RT_Station"));
         RT->bAutoGenerateMips = false;
-        RT->InitCustomFormat(Width, Height, PF_A2B10G10R10, /*bForceLinearGamma*/ false);
+        RT->InitAutoFormat(Width, Height);
+        RT->RenderTargetFormat = RTF_RGBA8;
         RT->ClearColor = FLinearColor::Black;
         RT->UpdateResourceImmediate(true);
         StationTexture = RT;
@@ -643,9 +614,11 @@ void AStarflightPlayerController::EnsureCrossfadeSetup()
             StationCamera->GetActorLocation(), StationCamera->GetActorRotation());
         if (StationCapture)
         {
-            StationCapture->GetCaptureComponent2D()->TextureTarget = RT;
-            StationCapture->GetCaptureComponent2D()->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
-            StationCapture->GetCaptureComponent2D()->bCaptureEveryFrame = true;
+            USceneCaptureComponent2D* CaptureComp = StationCapture->GetCaptureComponent2D();
+            CaptureComp->TextureTarget      = RT;
+            CaptureComp->CaptureSource      = ESceneCaptureSource::SCS_FinalColorLDR;
+            CaptureComp->bCaptureEveryFrame = true;
+            SyncCaptureSettingsWithMainView(CaptureComp);
             UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Spawned Station SceneCapture2D."));
         }
     }
@@ -701,149 +674,6 @@ void AStarflightPlayerController::CrossfadeToViewTarget(AActor* NewTarget)
         *FromTex->GetName(), *ToTex->GetName(), bToStation ? TEXT("true") : TEXT("false"), CrossfadeDuration);
 
     CameraCrossfadeWidget->SetVisibility(ESlateVisibility::Visible);
-}
-
-void AStarflightPlayerController::CaptureComputerRoomBackbuffer()
-{
-
-    // Assert we are executing on the render thread
-    check(IsInRenderingThread());
-
-    // Match UViewportCaptureComponent::CaptureViewportDeferred from scp-project-unreal.
-
-    if (!ComputerRoomTexture)
-    {
-        UE_LOG(LogTemp, Error, TEXT("CaptureComputerRoomBackbuffer: Invalid ComputerRoomTexture, aborting..."));
-        return;
-    }
-
-    if (!ViewportTextureRHI.IsValid())
-    {
-        UE_LOG(LogTemp, Error, TEXT("CaptureComputerRoomBackbuffer: No viewport texture found, aborting..."));
-        return;
-    }
-
-    if (ComputerRoomTexture->GetFormat() != ViewportTextureRHI->GetFormat())
-    {
-        UE_LOG(LogTemp, Error,
-            TEXT("CaptureComputerRoomBackbuffer: Pixel format mismatch (RT=%s, Viewport=%s), aborting..."),
-            *UEnum::GetValueAsString(ComputerRoomTexture->GetFormat()),
-            *UEnum::GetValueAsString(ViewportTextureRHI->GetFormat()));
-        return;
-    }
-
-    FRHITexture2D* TargetTextureRHI = ComputerRoomTexture->GetResource()->GetTexture2DRHI();
-    FRHITexture2D* ViewportTextureRHILocal = ViewportTextureRHI;
-    FString DebugName = TEXT("ComputerRoomCapture");
-
-    ENQUEUE_RENDER_COMMAND(CopyViewportTexture)(
-        [ViewportTextureRHILocal, TargetTextureRHI, DebugName](FRHICommandListImmediate& RHICmdList)
-        {
-            if (TargetTextureRHI == nullptr || !TargetTextureRHI->IsValid())
-            {
-                UE_LOG(LogTemp, Error,
-                    TEXT("%s: Invalid target texture on render thread, aborting..."),
-                    *DebugName);
-                return;
-            }
-
-            if (ViewportTextureRHILocal == nullptr || !ViewportTextureRHILocal->IsValid())
-            {
-                UE_LOG(LogTemp, Error,
-                    TEXT("%s: Invalid viewport texture on render thread, aborting..."),
-                    *DebugName);
-                return;
-            }
-
-            if (ViewportTextureRHILocal->GetSizeXY() != TargetTextureRHI->GetSizeXY())
-            {
-                UE_LOG(LogTemp, Error,
-                    TEXT("%s: Texture size mismatch on render thread, aborting..."),
-                    *DebugName);
-                return;
-            }
-
-            FRHICopyTextureInfo CopyInfo;
-            RHICmdList.CopyTexture(ViewportTextureRHILocal, TargetTextureRHI, CopyInfo);
-        });
-
-    UE_LOG(LogTemp, Verbose, TEXT("CaptureComputerRoomBackbuffer: Enqueued viewport copy to ComputerRoomTexture."));
-
-#if 0
-    if (GDebugDumpComputerRoomFrames)
-    {
-        AsyncTask(ENamedThreads::GameThread, [WeakThis = TWeakObjectPtr<AStarflightPlayerController>(this)]()
-        {
-            if (WeakThis.IsValid())
-            {
-                WeakThis->DumpComputerRoomTextureToDisk();
-            }
-        });
-    }
-#endif
-}
-
-void AStarflightPlayerController::DumpComputerRoomTextureToDisk()
-{
-    if (!ComputerRoomTexture)
-    {
-        return;
-    }
-
-    // Ensure any pending render-thread work (including CopyTexture) is flushed.
-    FlushRenderingCommands();
-
-    FTextureRenderTargetResource* RTResource = ComputerRoomTexture->GameThread_GetRenderTargetResource();
-    if (!RTResource)
-    {
-        return;
-    }
-
-    const int32 Width = ComputerRoomTexture->SizeX;
-    const int32 Height = ComputerRoomTexture->SizeY;
-    if (Width <= 0 || Height <= 0)
-    {
-        return;
-    }
-
-    TArray<FColor> PixelData;
-    if (!RTResource->ReadPixels(PixelData))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("DumpComputerRoomTextureToDisk: ReadPixels failed."));
-        return;
-    }
-
-    IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
-    TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
-    if (!ImageWrapper.IsValid())
-    {
-        UE_LOG(LogTemp, Warning, TEXT("DumpComputerRoomTextureToDisk: Failed to create PNG image wrapper."));
-        return;
-    }
-
-    if (!ImageWrapper->SetRaw(PixelData.GetData(), PixelData.Num() * sizeof(FColor), Width, Height, ERGBFormat::BGRA, 8))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("DumpComputerRoomTextureToDisk: SetRaw failed."));
-        return;
-    }
-
-    // In UE 5.6, GetCompressed returns TArray64<uint8>; copy into a regular TArray<uint8>
-    TArray64<uint8> PngData64 = ImageWrapper->GetCompressed(100);
-    TArray<uint8> PngData;
-    PngData.Append(PngData64.GetData(), PngData64.Num());
-
-    const FString DirPath = TEXT("C:/temp");
-    IFileManager::Get().MakeDirectory(*DirPath, true);
-
-    const FString FilePath = FString::Printf(TEXT("C:/temp/frame_%04d.png"), GComputerRoomFrameDumpCounter++);
-    if (FFileHelper::SaveArrayToFile(PngData, *FilePath))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("DumpComputerRoomTextureToDisk: Saved %s"), *FilePath);
-    }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("DumpComputerRoomTextureToDisk: Failed to save %s"), *FilePath);
-    }
 }
 
 void AStarflightPlayerController::ToggleStationCamera()
