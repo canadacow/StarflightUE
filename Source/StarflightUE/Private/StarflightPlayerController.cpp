@@ -471,8 +471,11 @@ void AStarflightPlayerController::UpdateCaptureTransforms()
 {
     // Keep both ComputerRoom and Station captures in sync with their respective cameras.
 
-    // ComputerRoom: mirror the final player camera view (PlayerCameraManager).
-    if (ComputerRoomCapture && PlayerCameraManager)
+    // ComputerRoom: mirror the final player camera view (PlayerCameraManager) **only while**
+    // we are actually in the ComputerRoom view. Once we have switched to the Station camera
+    // we intentionally freeze this capture so that its render target continues to represent
+    // the "from" view during a Station <-> ComputerRoom crossfade.
+    if (ComputerRoomCapture && PlayerCameraManager && !bUsingStationCamera)
     {
         const FVector  ViewLocation = PlayerCameraManager->GetCameraLocation();
         const FRotator ViewRotation = PlayerCameraManager->GetCameraRotation();
