@@ -398,6 +398,8 @@ void AStarflightPlayerController::TickCrossfade(float DeltaSeconds)
     {
         UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: crossfade completed."));
         bCrossfading = false;
+        // Disable scene captures now that the transition is done so they no longer render every frame.
+        SetSceneCapturesActive(false);
         CameraCrossfadeWidget->SetVisibility(ESlateVisibility::Collapsed);
     }
 }
@@ -544,6 +546,26 @@ void AStarflightPlayerController::SyncCaptureSettingsWithMainView(USceneCaptureC
     CaptureComp->bUseRayTracingIfEnabled = true;
 }
 
+void AStarflightPlayerController::SetSceneCapturesActive(bool bActive)
+{
+    auto ConfigureCapture = [bActive](ASceneCapture2D* Capture)
+    {
+        if (!Capture)
+        {
+            return;
+        }
+
+        if (USceneCaptureComponent2D* CaptureComp = Capture->GetCaptureComponent2D())
+        {
+            CaptureComp->bCaptureEveryFrame = bActive;
+            CaptureComp->bCaptureOnMovement = bActive;
+        }
+    };
+
+    ConfigureCapture(ComputerRoomCapture);
+    ConfigureCapture(StationCapture);
+}
+
 void AStarflightPlayerController::EnsureCrossfadeSetup()
 {
     UWorld* World = GetWorld();
@@ -590,7 +612,8 @@ void AStarflightPlayerController::EnsureCrossfadeSetup()
                 USceneCaptureComponent2D* CaptureComp = ComputerRoomCapture->GetCaptureComponent2D();
                 CaptureComp->TextureTarget      = RT;
                 CaptureComp->CaptureSource      = ESceneCaptureSource::SCS_FinalColorLDR;
-                CaptureComp->bCaptureEveryFrame = true;
+                CaptureComp->bCaptureEveryFrame = false;
+                CaptureComp->bCaptureOnMovement = false;
                 SyncCaptureSettingsWithMainView(CaptureComp);
                 UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Spawned ComputerRoom SceneCapture2D."));
             }
@@ -620,7 +643,8 @@ void AStarflightPlayerController::EnsureCrossfadeSetup()
             USceneCaptureComponent2D* CaptureComp = StationCapture->GetCaptureComponent2D();
             CaptureComp->TextureTarget      = RT;
             CaptureComp->CaptureSource      = ESceneCaptureSource::SCS_FinalColorLDR;
-            CaptureComp->bCaptureEveryFrame = true;
+            CaptureComp->bCaptureEveryFrame = false;
+            CaptureComp->bCaptureOnMovement = false;
             SyncCaptureSettingsWithMainView(CaptureComp);
             UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Spawned Station SceneCapture2D."));
         }
@@ -656,7 +680,7 @@ void AStarflightPlayerController::CrossfadeToViewTarget(AActor* NewTarget)
 
     // Choose textures based on direction
     UTexture* FromTex = bToStation ? ComputerRoomTexture : StationTexture;
-    UTexture* ToTex   = bToStation ? StationTexture   : ComputerRoomTexture;
+    UTexture* ToTex   = bToStation ? StationTexture      : ComputerRoomTexture;
 
     if (!FromTex || !ToTex)
     {
@@ -665,6 +689,9 @@ void AStarflightPlayerController::CrossfadeToViewTarget(AActor* NewTarget)
             ToTex ? *ToTex->GetName() : TEXT("NULL"));
         return;
     }
+
+    // Enable scene captures while we are crossfading so they only render during transitions.
+    SetSceneCapturesActive(true);
 
     CrossfadeAlpha = 0.0f;
     bCrossfading   = true;

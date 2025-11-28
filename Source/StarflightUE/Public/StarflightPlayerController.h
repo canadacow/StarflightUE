@@ -210,4 +210,6 @@ private:
     /** Copy lighting / post-process / show-flag settings from the main view into a capture component. */
     void SyncCaptureSettingsWithMainView(USceneCaptureComponent2D* CaptureComp) const;
 
+    /** Enable or disable runtime capturing on the scene capture actors. */
+    void SetSceneCapturesActive(bool bActive);
 };
