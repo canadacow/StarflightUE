@@ -185,8 +185,9 @@ void AStarflightPlayerController::BeginPlay()
         }
     }
 
-    // First resolve StationCamera, then ensure render targets / scene captures for crossfade
+    // First resolve StationCamera and any pre-placed SceneCaptures, then ensure render targets.
     ResolveStationCamera();
+    ResolveCrossfadeCaptures();
     EnsureCrossfadeSetup();
     LogCrossfadeSetup(TEXT("BeginPlay"));
 
@@ -376,6 +377,46 @@ void AStarflightPlayerController::ResolveStationCamera()
     }
 }
 
+void AStarflightPlayerController::ResolveCrossfadeCaptures()
+{
+    // If both captures are already set (e.g., from BP), nothing to do.
+    if (ComputerRoomCapture && StationCapture)
+    {
+        return;
+    }
+
+    // ComputerRoom capture: look for a USceneCaptureComponent2D on the pawn or default view target.
+    if (!ComputerRoomCapture)
+    {
+        if (APawn* LocalPawn = GetPawn())
+        {
+            ComputerRoomCapture = LocalPawn->FindComponentByClass<USceneCaptureComponent2D>();
+        }
+
+        if (!ComputerRoomCapture && DefaultViewTarget && DefaultViewTarget != GetPawn())
+        {
+            ComputerRoomCapture = DefaultViewTarget->FindComponentByClass<USceneCaptureComponent2D>();
+        }
+
+        if (ComputerRoomCapture && ComputerRoomCapture->GetOwner())
+        {
+            UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Bound ComputerRoomCapture component on %s"),
+                *ComputerRoomCapture->GetOwner()->GetName());
+        }
+    }
+
+    // Station capture: look for a USceneCaptureComponent2D on the StationCamera actor.
+    if (!StationCapture && StationCamera)
+    {
+        StationCapture = StationCamera->FindComponentByClass<USceneCaptureComponent2D>();
+        if (StationCapture)
+        {
+            UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Bound StationCapture component on %s"),
+                *StationCamera->GetName());
+        }
+    }
+}
+
 void AStarflightPlayerController::TickCrossfade(float DeltaSeconds)
 {
     if (!bCrossfading)
@@ -473,31 +514,20 @@ void AStarflightPlayerController::UpdateCaptureTransforms()
 {
     // Keep both ComputerRoom and Station captures in sync with their respective cameras.
 
-    // ComputerRoom: mirror the final player camera view (PlayerCameraManager) **only while**
+    // ComputerRoom: mirror the final player camera FOV (PlayerCameraManager) **only while**
     // we are actually in the ComputerRoom view. Once we have switched to the Station camera
     // we intentionally freeze this capture so that its render target continues to represent
-    // the "from" view during a Station <-> ComputerRoom crossfade.
+    // the "from" view during a Station <-> ComputerRoom crossfade. Transform follows the
+    // owning actor because the capture is a component attached to that actor.
     if (ComputerRoomCapture && PlayerCameraManager && !bUsingStationCamera)
     {
-        const FVector  ViewLocation = PlayerCameraManager->GetCameraLocation();
-        const FRotator ViewRotation = PlayerCameraManager->GetCameraRotation();
-        const float    ViewFOV      = PlayerCameraManager->GetFOVAngle();
-
-        ComputerRoomCapture->SetActorLocation(ViewLocation);
-        ComputerRoomCapture->SetActorRotation(ViewRotation);
-
-        if (USceneCaptureComponent2D* CaptureComp = ComputerRoomCapture->GetCaptureComponent2D())
-        {
-            CaptureComp->FOVAngle = ViewFOV;
-        }
+        const float ViewFOV = PlayerCameraManager->GetFOVAngle();
+        ComputerRoomCapture->FOVAngle = ViewFOV;
     }
 
-    // Station: mirror the StationCamera actor.
-    if (StationCapture && StationCapture->GetCaptureComponent2D() && StationCamera)
+    // Station: match the StationCamera's FOV. Transform again follows the owning actor via attachment.
+    if (StationCapture && StationCamera)
     {
-        StationCapture->SetActorLocation(StationCamera->GetActorLocation());
-        StationCapture->SetActorRotation(StationCamera->GetActorRotation());
-
         float StationFOV = 90.0f;
         if (const UCameraComponent* StationCamComp = StationCamera->FindComponentByClass<UCameraComponent>())
         {
@@ -511,55 +541,21 @@ void AStarflightPlayerController::UpdateCaptureTransforms()
             }
         }
 
-        StationCapture->GetCaptureComponent2D()->FOVAngle = StationFOV;
+        StationCapture->FOVAngle = StationFOV;
     }
-}
-
-void AStarflightPlayerController::SyncCaptureSettingsWithMainView(USceneCaptureComponent2D* CaptureComp) const
-{
-    if (!CaptureComp)
-    {
-        return;
-    }
-
-    const UWorld* World = GetWorld();
-    if (World)
-    {
-        if (UGameViewportClient* ViewportClient = World->GetGameViewport())
-        {
-            // Match the main game viewport's show flags so lighting / GI / reflections
-            // and other detail settings (shadows, fog, etc.) line up with the player view.
-            CaptureComp->ShowFlags = ViewportClient->EngineShowFlags;
-        }
-    }
-
-    if (PlayerCameraManager)
-    {
-        // Copy post-process settings (exposure, tone mapping, LUTs, etc.) from the main camera.
-        const FMinimalViewInfo& MainPOV = PlayerCameraManager->GetCameraCacheView();
-        CaptureComp->PostProcessSettings    = MainPOV.PostProcessSettings;
-        CaptureComp->PostProcessBlendWeight = 1.0f;
-    }
-
-    // Ensure we use ray tracing when the renderer is configured to do so,
-    // so reflections / GI match the main view.
-    CaptureComp->bUseRayTracingIfEnabled = true;
 }
 
 void AStarflightPlayerController::SetSceneCapturesActive(bool bActive)
 {
-    auto ConfigureCapture = [bActive](ASceneCapture2D* Capture)
+    auto ConfigureCapture = [bActive](USceneCaptureComponent2D* CaptureComp)
     {
-        if (!Capture)
+        if (!CaptureComp)
         {
             return;
         }
 
-        if (USceneCaptureComponent2D* CaptureComp = Capture->GetCaptureComponent2D())
-        {
-            CaptureComp->bCaptureEveryFrame = bActive;
-            CaptureComp->bCaptureOnMovement = bActive;
-        }
+        CaptureComp->bCaptureEveryFrame = bActive;
+        CaptureComp->bCaptureOnMovement = bActive;
     };
 
     ConfigureCapture(ComputerRoomCapture);
@@ -578,50 +574,32 @@ void AStarflightPlayerController::EnsureCrossfadeSetup()
     const int32 Width = FMath::Max(DesiredSize.X, 1);
     const int32 Height = FMath::Max(DesiredSize.Y, 1);
 
-    // Create render targets and scene captures if needed
+    // Create render targets if needed; scene capture components are expected to be added
+    // to the relevant camera actors (pawn / StationCamera) and assigned or auto-bound,
+    // not spawned here.
     if (!ComputerRoomTexture)
     {
         UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(this, TEXT("RT_ComputerRoom"));
         RT->InitAutoFormat(Width, Height);
-        RT->RenderTargetFormat = RTF_RGBA8;
+        RT->RenderTargetFormat = RTF_RGB10A2;
         RT->ClearColor = FLinearColor::Black;
         RT->UpdateResourceImmediate(true);
         ComputerRoomTexture = RT;
         UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Created ComputerRoomTexture render target."));
-
-        // Spawn a SceneCapture2D that mirrors the active player camera (ComputerRoom view).
-        APawn* LocalPawn = GetPawn();
-        FVector CamLocation = FVector::ZeroVector;
-        FRotator CamRotation = FRotator::ZeroRotator;
-        if (PlayerCameraManager)
-        {
-            CamLocation = PlayerCameraManager->GetCameraLocation();
-            CamRotation = PlayerCameraManager->GetCameraRotation();
-        }
-        else if (LocalPawn)
-        {
-            CamLocation = LocalPawn->GetActorLocation();
-            CamRotation = LocalPawn->GetActorRotation();
-        }
-
-        if (UWorld* WW = GetWorld())
-        {
-            ComputerRoomCapture = WW->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(), CamLocation, CamRotation);
-            if (ComputerRoomCapture)
-            {
-                USceneCaptureComponent2D* CaptureComp = ComputerRoomCapture->GetCaptureComponent2D();
-                CaptureComp->TextureTarget      = RT;
-                CaptureComp->CaptureSource      = ESceneCaptureSource::SCS_FinalColorLDR;
-                CaptureComp->bCaptureEveryFrame = false;
-                CaptureComp->bCaptureOnMovement = false;
-                SyncCaptureSettingsWithMainView(CaptureComp);
-                UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Spawned ComputerRoom SceneCapture2D."));
-            }
-        }
     }
     else
     {
         ResizeRenderTargetIfNeeded(ComputerRoomTexture, DesiredSize, TEXT("ComputerRoomTexture"));
+    }
+
+    // Wire up an existing ComputerRoom capture component, if assigned/available.
+    if (ComputerRoomCapture && ComputerRoomTexture)
+    {
+        ComputerRoomCapture->TextureTarget      = ComputerRoomTexture;
+    }
+    else if (!ComputerRoomCapture)
+    {
+        UE_LOG(LogTemp, Verbose, TEXT("AStarflightPlayerController: ComputerRoomCapture component is null; add one to the pawn/view target and assign or let ResolveCrossfadeCaptures bind it."));
     }
 
     if (!StationTexture && StationCamera)
@@ -629,29 +607,26 @@ void AStarflightPlayerController::EnsureCrossfadeSetup()
         UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(this, TEXT("RT_Station"));
         RT->bAutoGenerateMips = false;
         RT->InitAutoFormat(Width, Height);
-        RT->RenderTargetFormat = RTF_RGBA8;
+        RT->RenderTargetFormat = RTF_RGB10A2;
         RT->ClearColor = FLinearColor::Black;
         RT->UpdateResourceImmediate(true);
         StationTexture = RT;
         UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Created StationTexture (PF=%s, %dx%d)."),
             *UEnum::GetValueAsString(RT->GetFormat()), Width, Height);
-
-        StationCapture = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(),
-            StationCamera->GetActorLocation(), StationCamera->GetActorRotation());
-        if (StationCapture)
-        {
-            USceneCaptureComponent2D* CaptureComp = StationCapture->GetCaptureComponent2D();
-            CaptureComp->TextureTarget      = RT;
-            CaptureComp->CaptureSource      = ESceneCaptureSource::SCS_FinalColorLDR;
-            CaptureComp->bCaptureEveryFrame = false;
-            CaptureComp->bCaptureOnMovement = false;
-            SyncCaptureSettingsWithMainView(CaptureComp);
-            UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController: Spawned Station SceneCapture2D."));
-        }
     }
     else if (StationTexture)
     {
         ResizeRenderTargetIfNeeded(StationTexture, DesiredSize, TEXT("StationTexture"));
+    }
+
+    // Wire up an existing Station capture component, if assigned/available.
+    if (StationCapture && StationTexture)
+    {
+        StationCapture->TextureTarget      = StationTexture;
+    }
+    else if (!StationCapture && StationCamera)
+    {
+        UE_LOG(LogTemp, Verbose, TEXT("AStarflightPlayerController: StationCapture component is null; add one to StationCamera and assign or let ResolveCrossfadeCaptures bind it."));
     }
 }
 

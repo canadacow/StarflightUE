@@ -141,6 +141,9 @@ private:
     /** Find and cache the StationCamera actor by tag or name if not already set. */
     void ResolveStationCamera();
 
+    /** Find and cache crossfade SceneCapture actors by tag or name if not already set. */
+    void ResolveCrossfadeCaptures();
+
     /** Cross-fade to a new view target without moving the camera through world space. */
     void CrossfadeToViewTarget(AActor* NewTarget);
 
@@ -172,13 +175,19 @@ private:
     UPROPERTY()
     UTextureRenderTarget2D* StationTexture = nullptr;
 
-    /** Scene capture that mirrors the active player camera (ComputerRoom). */
-    UPROPERTY()
-    ASceneCapture2D* ComputerRoomCapture = nullptr;
+    /** Scene capture component that mirrors the active player camera (ComputerRoom).
+        Typically added as a child component on BP_StarflightPawn or the default view target, then:
+        - auto-bound at runtime via component lookup, or
+        - optionally assigned from Blueprint where a concrete instance is available. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Camera", meta = (AllowPrivateAccess = "true"))
+    USceneCaptureComponent2D* ComputerRoomCapture = nullptr;
 
-    /** Scene capture that mirrors the Station camera. */
-    UPROPERTY()
-    ASceneCapture2D* StationCapture = nullptr;
+    /** Scene capture component that mirrors the Station camera.
+        Typically added as a child component on StationCamera (or its BP), then:
+        - auto-bound at runtime via component lookup, or
+        - optionally assigned from Blueprint where a concrete instance is available. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Camera", meta = (AllowPrivateAccess = "true"))
+    USceneCaptureComponent2D* StationCapture = nullptr;
 
     /** Current 0..1 blend between the two camera textures. */
     float CrossfadeAlpha = 0.0f;
