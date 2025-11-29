@@ -22,6 +22,11 @@ using RotoscopeSinkFn = std::function<void(const uint8_t* bgra, int width, int h
 STARFLIGHTRUNTIME_API void SetRotoscopeSink(RotoscopeSinkFn cb);
 STARFLIGHTRUNTIME_API void EmitRotoscope(const uint8_t* bgra, int w, int h, int pitch);
 
+// Space man (astronaut) cursor events
+using SpaceManMoveSinkFn = std::function<void(uint16_t pixelX, uint16_t pixelY)>;
+STARFLIGHTRUNTIME_API void SetSpaceManMoveSink(SpaceManMoveSinkFn cb);
+STARFLIGHTRUNTIME_API void EmitSpaceManMove(uint16_t pixelX, uint16_t pixelY);
+
 // High-level emulator state for gameplay & scripting
 enum class FStarflightEmulatorState : uint8_t
 {

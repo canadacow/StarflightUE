@@ -26,6 +26,7 @@ namespace
 	FrameSinkFn gFrameSink;
 	AudioSinkFn gAudioSink;
 	static RotoscopeSinkFn gRotoSink;
+	SpaceManMoveSinkFn gSpaceManSink;
 	StatusSinkFn gStatusSink;
 	FStarflightStatus gLastStatus{ FStarflightEmulatorState::Off, 0u, 0u };
 	std::atomic<bool> gRunning{ false };
@@ -191,5 +192,38 @@ void EmitRotoscope(const uint8_t* bgra, int w, int h, int pitch)
 	}
 	if (sink) { sink(bgra, w, h, pitch); }
 }
+
+void SetSpaceManMoveSink(SpaceManMoveSinkFn cb)
+{
+	SpaceManMoveSinkFn NewSink;
+	{
+		std::lock_guard<std::mutex> lock(gSinksMutex);
+		gSpaceManSink = std::move(cb);
+		NewSink = gSpaceManSink;
+	}
+
+	SF_LOG(TEXT("SetSpaceManMoveSink: sink %s"),
+		NewSink ? TEXT("BOUND") : TEXT("CLEARED"));
+}
+
+void EmitSpaceManMove(uint16_t pixelX, uint16_t pixelY)
+{
+	SpaceManMoveSinkFn sink;
+	{
+		std::lock_guard<std::mutex> lock(gSinksMutex);
+		sink = gSpaceManSink;
+	}
+	if (sink)
+	{
+		SF_LOG(TEXT("EmitSpaceManMove: dispatching (%u, %u) to sink"), pixelX, pixelY);
+		sink(pixelX, pixelY);
+	}
+	else
+	{
+		SF_LOG(TEXT("EmitSpaceManMove: sink is null, dropping event (%u, %u)"), pixelX, pixelY);
+	}
+}
+
+
 
 

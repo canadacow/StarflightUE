@@ -7,6 +7,7 @@
 #include "Blueprint/UserWidget.h"
 #include "StarflightMainMenuWidget.h"
 #include "EngineUtils.h"
+#include "Kismet/GameplayStatics.h"
 #include "Components/Image.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/SceneCaptureComponent2D.h"
@@ -22,10 +23,16 @@
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "RenderCore.h"
+#include "Components/SceneComponent.h"
 // Debug: force the crossfade overlay to be visible at all times so we can verify it actually draws.
 static constexpr bool GDebugForceCrossfadeAlwaysVisible = false;
 // Debug: force the crossfade image to show solid red (bypasses material logic entirely).
 static constexpr bool GDebugForceCrossfadeImageRed = false;
+namespace
+{
+	constexpr float SpaceManTextureWidth = 160.0f;
+	constexpr float SpaceManTextureHeight = 200.0f;
+}
 
 AStarflightPlayerController::AStarflightPlayerController()
 {
@@ -191,6 +198,9 @@ void AStarflightPlayerController::BeginPlay()
     EnsureCrossfadeSetup();
     LogCrossfadeSetup(TEXT("BeginPlay"));
 
+    ResolveStationAstronaut();
+    BindSpaceManListener();
+
     // Show main menu on start
     //ShowMainMenu();
 
@@ -214,6 +224,7 @@ void AStarflightPlayerController::Tick(float DeltaSeconds)
 void AStarflightPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     StopStarflightGame();
+    UnbindSpaceManListener();
     Super::EndPlay(EndPlayReason);
 }
 
@@ -761,3 +772,280 @@ void AStarflightPlayerController::ToggleStationCamera()
         bUsingStationCamera = false;
     }
 }
+
+// ============================================
+// Station Astronaut Bridging
+// ============================================
+
+void AStarflightPlayerController::BindSpaceManListener()
+{
+	if (SpaceManListenerHandle.IsValid())
+	{
+		UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController::BindSpaceManListener: already bound (Handle valid)."));
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		if (UGameInstance* GameInstance = World->GetGameInstance())
+		{
+			if (UStarflightEmulatorSubsystem* Subsystem = GameInstance->GetSubsystem<UStarflightEmulatorSubsystem>())
+			{
+				CachedEmulatorSubsystem = Subsystem;
+				TWeakObjectPtr<AStarflightPlayerController> WeakThis(this);
+				SpaceManListenerHandle = Subsystem->RegisterSpaceManListener(
+					[WeakThis](uint16 PixelX, uint16 PixelY)
+					{
+						if (AStarflightPlayerController* StrongThis = WeakThis.Get())
+						{
+							StrongThis->HandleSpaceManMove(PixelX, PixelY);
+						}
+					});
+
+				UE_LOG(LogTemp, Log,
+					TEXT("AStarflightPlayerController::BindSpaceManListener: registered spaceman listener (Handle is valid=%d)."),
+					SpaceManListenerHandle.IsValid() ? 1 : 0);
+			}
+			else
+			{
+			UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController::BindSpaceManListener: UStarflightEmulatorSubsystem not found on GameInstance."));
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController::BindSpaceManListener: GameInstance is null."));
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController::BindSpaceManListener: World is null."));
+	}
+}
+
+void AStarflightPlayerController::UnbindSpaceManListener()
+{
+	if (UStarflightEmulatorSubsystem* Subsystem = CachedEmulatorSubsystem.Get())
+	{
+		if (SpaceManListenerHandle.IsValid())
+		{
+			Subsystem->UnregisterSpaceManListener(SpaceManListenerHandle);
+			SpaceManListenerHandle.Reset();
+		}
+	}
+	else
+	{
+		SpaceManListenerHandle.Reset();
+	}
+
+	CachedEmulatorSubsystem.Reset();
+}
+
+void AStarflightPlayerController::ResolveStationAstronaut()
+{
+	if (StationAstronautActor || !bAutoFindAstronautActor)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ResolveStationAstronaut: World is null."));
+		return;
+	}
+
+	TArray<AActor*> AstronautActors;
+	UGameplayStatics::GetAllActorsWithTag(World, FName(TEXT("AstronautActor")), AstronautActors);
+	if (AstronautActors.Num() > 0)
+	{
+		StationAstronautActor = AstronautActors[0];
+		UE_LOG(LogTemp, Log, TEXT("Bound StationAstronautActor to %s via tag"), *StationAstronautActor->GetName());
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController::ResolveStationAstronaut: Could not find actor with tag 'AstronautActor'."));
+	}
+
+	if (!StationAstronautActor)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController: Unable to auto-resolve astronaut actor. Assign StationAstronautActor in the controller defaults."));
+	}
+}
+
+void AStarflightPlayerController::HandleSpaceManMove(uint16 PixelX, uint16 PixelY)
+{
+	if (!StationAstronautActor)
+	{
+		if (bAutoFindAstronautActor)
+		{
+			ResolveStationAstronaut();
+		}
+
+		if (!StationAstronautActor)
+		{
+			return;
+		}
+	}
+
+	bool bValid = false;
+	FVector TargetLocation = ConvertSpaceManPixelToWorld(PixelX, PixelY, bValid);
+	if (!bValid)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("AStarflightPlayerController::HandleSpaceManMove: invalid mapping for (PixelX=%u, PixelY=%u)."),
+			static_cast<uint32>(PixelX), static_cast<uint32>(PixelY));
+		return;
+	}
+
+	TargetLocation.Z += AstronautVerticalOffset;
+
+	StationAstronautActor->SetActorLocation(TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
+	const FRotator NewRotation = ComputeAstronautRotationAndCache(TargetLocation);
+	StationAstronautActor->SetActorRotation(NewRotation, ETeleportType::TeleportPhysics);
+
+	UE_LOG(LogTemp, Log,
+		TEXT("AStarflightPlayerController::HandleSpaceManMove: applied move (PixelX=%u, PixelY=%u) -> Location=%s Rotation=%s"),
+		static_cast<uint32>(PixelX), static_cast<uint32>(PixelY),
+		*TargetLocation.ToString(), *NewRotation.ToString());
+}
+
+bool AStarflightPlayerController::ComputeStationCameraRay(float PixelX, float PixelY, FVector& OutRayOrigin, FVector& OutRayDirection) const
+{
+	// Match the original C++ graphics.cpp mapping as closely as possible:
+	//   float ndcX = (2.0f * x / GRAPHICS_MODE_WIDTH) - 1.0f;
+	//   float ndcY = 1.0f - (2.0f * y / GRAPHICS_MODE_HEIGHT);
+
+	const float XNorm = PixelX / SpaceManTextureWidth;
+	const float YNorm = PixelY / SpaceManTextureHeight;
+
+	const float NdX = (2.0f * XNorm) - 1.0f;
+	const float NdY = bFlipAstronautY
+		? (1.0f - (2.0f * YNorm))   // Default: emulate OG EGA with origin at top-left.
+		: ((2.0f * YNorm) - 1.0f);  // Optional: direct bottom-left mapping if desired.
+
+	// Camera selection mirrors the render path: prefer StationCapture, then StationCamera,
+	// then fall back to the main PlayerCameraManager.
+	FVector CameraLocation = FVector::ZeroVector;
+	FRotator CameraRotation = FRotator::ZeroRotator;
+	float FieldOfView = 60.0f;
+
+	if (StationCapture)
+	{
+		CameraLocation = StationCapture->GetComponentLocation();
+		CameraRotation = StationCapture->GetComponentRotation();
+		FieldOfView = StationCapture->FOVAngle;
+	}
+	else if (StationCamera)
+	{
+		if (const UCameraComponent* CameraComp = StationCamera->FindComponentByClass<UCameraComponent>())
+		{
+			CameraLocation = CameraComp->GetComponentLocation();
+			CameraRotation = CameraComp->GetComponentRotation();
+			FieldOfView = CameraComp->FieldOfView;
+		}
+		else
+		{
+			CameraLocation = StationCamera->GetActorLocation();
+			CameraRotation = StationCamera->GetActorRotation();
+		}
+	}
+	else if (const APlayerCameraManager* PCM = PlayerCameraManager)
+	{
+		CameraLocation = PCM->GetCameraLocation();
+		CameraRotation = PCM->GetCameraRotation();
+		FieldOfView = PCM->GetFOVAngle();
+	}
+	else
+	{
+		return false;
+	}
+
+	if (!FMath::IsFinite(FieldOfView) || FieldOfView <= KINDA_SMALL_NUMBER)
+	{
+		FieldOfView = 60.0f;
+	}
+
+	const float Aspect = SpaceManTextureWidth / SpaceManTextureHeight;
+	const float TanHalfFov = FMath::Tan(FMath::DegreesToRadians(FieldOfView) * 0.5f);
+
+	FVector RayDirCamera(1.0f, NdX * TanHalfFov * Aspect, NdY * TanHalfFov);
+	RayDirCamera = RayDirCamera.GetSafeNormal();
+	if (RayDirCamera.IsNearlyZero())
+	{
+		return false;
+	}
+
+	OutRayOrigin = CameraLocation;
+	OutRayDirection = CameraRotation.RotateVector(RayDirCamera).GetSafeNormal();
+	return !OutRayDirection.IsNearlyZero();
+}
+
+FVector AStarflightPlayerController::ConvertSpaceManPixelToWorld(uint16 PixelX, uint16 PixelY, bool& bOutValid) const
+{
+	bOutValid = false;
+
+	if (!StationAstronautActor)
+	{
+		return FVector::ZeroVector;
+	}
+
+	FVector RayOrigin;
+	FVector RayDirection;
+	if (!ComputeStationCameraRay(PixelX, PixelY, RayOrigin, RayDirection))
+	{
+		static bool bLoggedRayWarning = false;
+		if (!bLoggedRayWarning)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController::ConvertSpaceManPixelToWorld: unable to derive camera ray."));
+			bLoggedRayWarning = true;
+		}
+		return StationAstronautActor->GetActorLocation();
+	}
+
+	const FVector PlaneOrigin = AstronautAnchorOrigin ? AstronautAnchorOrigin->GetComponentLocation() : StationAstronautActor->GetActorLocation();
+	const FVector PlaneNormalLocal = AstronautPlaneNormalLocal.GetSafeNormal();
+	FVector PlaneNormal = PlaneNormalLocal.IsNearlyZero()
+		? StationAstronautActor->GetActorUpVector().GetSafeNormal()
+		: StationAstronautActor->GetActorTransform().TransformVectorNoScale(PlaneNormalLocal).GetSafeNormal();
+
+	if (PlaneNormal.IsNearlyZero())
+	{
+		PlaneNormal = StationAstronautActor->GetActorUpVector().GetSafeNormal();
+	}
+
+	const float Denominator = FVector::DotProduct(RayDirection, PlaneNormal);
+	if (FMath::Abs(Denominator) <= KINDA_SMALL_NUMBER)
+	{
+		return StationAstronautActor->GetActorLocation();
+	}
+
+	const float Distance = FVector::DotProduct(PlaneOrigin - RayOrigin, PlaneNormal) / Denominator;
+	if (Distance <= 0.0f)
+	{
+		return StationAstronautActor->GetActorLocation();
+	}
+
+	const FVector IntersectionPoint = RayOrigin + RayDirection * Distance;
+	bOutValid = true;
+	return IntersectionPoint;
+}
+
+FRotator AStarflightPlayerController::ComputeAstronautRotationAndCache(const FVector& NewLocation)
+{
+	FRotator Result = StationAstronautActor ? StationAstronautActor->GetActorRotation() : FRotator::ZeroRotator;
+
+	if (bHasLastAstronautLocation)
+	{
+		FVector Delta = NewLocation - LastAstronautLocation;
+		Delta.Z = 0.0f;
+		if (!Delta.IsNearlyZero())
+		{
+			Result = Delta.ToOrientationRotator();
+		}
+	}
+
+	LastAstronautLocation = NewLocation;
+	bHasLastAstronautLocation = true;
+	return Result;
+}
+

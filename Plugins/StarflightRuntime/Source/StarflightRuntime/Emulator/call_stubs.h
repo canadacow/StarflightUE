@@ -263,6 +263,6 @@ inline void GraphicsInitPlanets(const std::unordered_map<uint32_t, struct Planet
 inline void GraphicsDeleteMissile(uint64_t id, const MissileRecord& mr) {}
 inline void GraphicsReportGameFrame() {}
 inline void GraphicsSplash(uint32_t ds, int fileNum) {}
-inline void GraphicsMoveSpaceMan(int, int) {}
+void GraphicsMoveSpaceMan(uint16_t x, uint16_t y);
 uint32_t GraphicsPeekDirect(int x, int y, uint32_t offset, Rotoscope* rs = nullptr);
 void GraphicsPixelDirect(int x, int y, uint32_t color, uint32_t offset, Rotoscope rs = Rotoscope());

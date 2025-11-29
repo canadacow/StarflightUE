@@ -37,11 +37,14 @@ namespace
 UStarflightEmulatorSubsystem::UStarflightEmulatorSubsystem()
 	: bEmulatorRunning(false)
 {
+	UE_LOG(LogStarflightEmulatorSubsystem, Log, TEXT("StarflightEmulatorSubsystem ctor"));
 }
 
 void UStarflightEmulatorSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+
+	UE_LOG(LogStarflightEmulatorSubsystem, Log, TEXT("StarflightEmulatorSubsystem::Initialize"));
 
 	SetFrameSink([this](const uint8* BGRA, int32 Width, int32 Height, int32 Pitch)
 	{
@@ -51,6 +54,11 @@ void UStarflightEmulatorSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	SetRotoscopeSink([this](const uint8* BGRA, int32 Width, int32 Height, int32 Pitch)
 	{
 		HandleRotoscope(BGRA, Width, Height, Pitch);
+	});
+
+	SetSpaceManMoveSink([this](uint16 PixelX, uint16 PixelY)
+	{
+		HandleSpaceManMove(PixelX, PixelY);
 	});
 
 	SetStatusSink([this](const FStarflightStatus& Status)
@@ -77,6 +85,7 @@ void UStarflightEmulatorSubsystem::Deinitialize()
 {
 	SetFrameSink(nullptr);
 	SetRotoscopeSink(nullptr);
+	SetSpaceManMoveSink(nullptr);
 	SetStatusSink(nullptr);
 
 	if (bEmulatorRunning.Load())
@@ -92,6 +101,11 @@ void UStarflightEmulatorSubsystem::Deinitialize()
 	{
 		FScopeLock RotoLock(&RotoscopeListenersMutex);
 		RotoscopeListeners.Reset();
+	}
+
+	{
+		FScopeLock SpaceLock(&SpaceManListenersMutex);
+		SpaceManListeners.Reset();
 	}
 
 	UE_LOG(LogStarflightEmulatorSubsystem, Log, TEXT("Starflight emulator subsystem deinitialized and emulator stopped."));
@@ -188,6 +202,57 @@ void UStarflightEmulatorSubsystem::BroadcastRotoscope(const uint8* BGRA, int32 W
 		if (Entry.Callback)
 		{
 			Entry.Callback(BGRA, Width, Height, Pitch);
+		}
+	}
+}
+
+FDelegateHandle UStarflightEmulatorSubsystem::RegisterSpaceManListener(FStarflightSpaceManCallback&& Callback)
+{
+	const FDelegateHandle Handle(FDelegateHandle::GenerateNewHandle);
+	FScopeLock Lock(&SpaceManListenersMutex);
+	SpaceManListeners.Add(FStarflightSpaceManListenerEntry{ Handle, MoveTemp(Callback) });
+	return Handle;
+}
+
+void UStarflightEmulatorSubsystem::UnregisterSpaceManListener(FDelegateHandle Handle)
+{
+	if (!Handle.IsValid())
+	{
+		return;
+	}
+
+	FScopeLock Lock(&SpaceManListenersMutex);
+	SpaceManListeners.RemoveAll([Handle](const FStarflightSpaceManListenerEntry& Entry)
+	{
+		return Entry.Handle == Handle;
+	});
+}
+
+void UStarflightEmulatorSubsystem::HandleSpaceManMove(uint16 PixelX, uint16 PixelY)
+{
+	AsyncTask(ENamedThreads::GameThread, [this, PixelX, PixelY]()
+	{
+		UE_LOG(LogStarflightEmulatorSubsystem, Log,
+			TEXT("StarflightEmulatorSubsystem: SpaceManMove received (PixelX=%u, PixelY=%u)"),
+			static_cast<uint32>(PixelX), static_cast<uint32>(PixelY));
+
+		BroadcastSpaceManMove(PixelX, PixelY);
+	});
+}
+
+void UStarflightEmulatorSubsystem::BroadcastSpaceManMove(uint16 PixelX, uint16 PixelY)
+{
+	TArray<FStarflightSpaceManListenerEntry> LocalListeners;
+	{
+		FScopeLock Lock(&SpaceManListenersMutex);
+		LocalListeners = SpaceManListeners;
+	}
+
+	for (const FStarflightSpaceManListenerEntry& Entry : LocalListeners)
+	{
+		if (Entry.Callback)
+		{
+			Entry.Callback(PixelX, PixelY);
 		}
 	}
 }

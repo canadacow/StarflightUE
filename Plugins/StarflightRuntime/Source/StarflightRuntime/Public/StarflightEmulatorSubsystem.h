@@ -13,6 +13,7 @@ class UStarflightEmulatorSubsystem;
 
 using FStarflightFrameCallback = TFunction<void(const uint8*, int32, int32, int32)>;
 using FStarflightRotoscopeCallback = TFunction<void(const uint8*, int32, int32, int32)>;
+using FStarflightSpaceManCallback = TFunction<void(uint16, uint16)>;
 
 UCLASS()
 class STARFLIGHTRUNTIME_API UStarflightEmulatorSubsystem : public UGameInstanceSubsystem
@@ -39,6 +40,9 @@ public:
 	FDelegateHandle RegisterRotoscopeListener(FStarflightRotoscopeCallback&& Callback);
 	void UnregisterRotoscopeListener(FDelegateHandle Handle);
 
+	FDelegateHandle RegisterSpaceManListener(FStarflightSpaceManCallback&& Callback);
+	void UnregisterSpaceManListener(FDelegateHandle Handle);
+
 private:
 	struct FStarflightFrameListenerEntry
 	{
@@ -52,17 +56,27 @@ private:
 		FStarflightRotoscopeCallback Callback;
 	};
 
+	struct FStarflightSpaceManListenerEntry
+	{
+		FDelegateHandle Handle;
+		FStarflightSpaceManCallback Callback;
+	};
+
 	void HandleFrame(const uint8* BGRA, int32 Width, int32 Height, int32 Pitch);
 	void HandleRotoscope(const uint8* BGRA, int32 Width, int32 Height, int32 Pitch);
+	void HandleSpaceManMove(uint16 PixelX, uint16 PixelY);
 
 	void BroadcastFrame(const uint8* BGRA, int32 Width, int32 Height, int32 Pitch);
 	void BroadcastRotoscope(const uint8* BGRA, int32 Width, int32 Height, int32 Pitch);
+	void BroadcastSpaceManMove(uint16 PixelX, uint16 PixelY);
 
 	FCriticalSection FrameListenersMutex;
 	FCriticalSection RotoscopeListenersMutex;
+	FCriticalSection SpaceManListenersMutex;
 
 	TArray<FStarflightFrameListenerEntry> FrameListeners;
 	TArray<FStarflightRotoscopeListenerEntry> RotoscopeListeners;
+	TArray<FStarflightSpaceManListenerEntry> SpaceManListeners;
 
 	TAtomic<bool> bEmulatorRunning;
 

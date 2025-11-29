@@ -16,6 +16,8 @@ class ASceneCapture2D;
 class AActor;
 class SWindow;
 class USceneCaptureComponent2D;
+class USceneComponent;
+class UStarflightEmulatorSubsystem;
 
 UCLASS(BlueprintType, Blueprintable)
 class STARFLIGHTUE_API AStarflightPlayerController : public APlayerController
@@ -221,4 +223,68 @@ private:
 
     /** Enable or disable runtime capturing on the scene capture actors. */
     void SetSceneCapturesActive(bool bActive);
+
+    // ============================================
+    // Station Astronaut Bridging
+    // ============================================
+
+    void BindSpaceManListener();
+    void UnbindSpaceManListener();
+    void ResolveStationAstronaut();
+    void HandleSpaceManMove(uint16 PixelX, uint16 PixelY);
+    FVector ConvertSpaceManPixelToWorld(uint16 PixelX, uint16 PixelY, bool& bOutValid) const;
+    bool ComputeStationCameraRay(float PixelX, float PixelY, FVector& OutRayOrigin, FVector& OutRayDirection) const;
+    FRotator ComputeAstronautRotationAndCache(const FVector& NewLocation);
+
+    /** Actor that contains the astronaut mesh that should be driven by emulator events. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    AActor* StationAstronautActor = nullptr;
+
+    /** Optional scene component that represents the origin of the astronaut plane (pixel 0,0). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    USceneComponent* AstronautAnchorOrigin = nullptr;
+
+    /** Optional scene component that defines the +X direction of the astronaut plane (pixel width). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    USceneComponent* AstronautAnchorX = nullptr;
+
+    /** Optional scene component that defines the +Y direction of the astronaut plane (pixel height). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    USceneComponent* AstronautAnchorY = nullptr;
+
+    /** Fallback scale (in centimeters) used when no anchor components are provided. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    float AstronautAxisXScale = 120.0f;
+
+    /** Fallback scale (in centimeters) used when no anchor components are provided. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    float AstronautAxisYScale = 80.0f;
+
+    /** Additional Z offset applied after mapping the astronaut plane. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    float AstronautVerticalOffset = 0.0f;
+
+    /** Plane normal defined in astronaut local space, mimicking the original emulator tilt. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    FVector AstronautPlaneNormalLocal = FVector(0.0f, -0.05f, 1.0f);
+
+    /** Flip the incoming Y axis (native EGA coordinates place Y=0 at the top). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    bool bFlipAstronautY = true;
+
+    /** Automatically try to locate an astronaut actor by tag or name if none is assigned. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    bool bAutoFindAstronautActor = true;
+
+    /** Cached subsystem pointer for listener lifetime management. */
+    TWeakObjectPtr<UStarflightEmulatorSubsystem> CachedEmulatorSubsystem;
+
+    /** Delegate handle for the current spaceman listener registration. */
+    FDelegateHandle SpaceManListenerHandle;
+
+    /** Last world-space location applied to the astronaut for heading calculations. */
+    FVector LastAstronautLocation = FVector::ZeroVector;
+
+    /** True once we have recorded at least one astronaut position. */
+    bool bHasLastAstronautLocation = false;
 };
