@@ -7,6 +7,7 @@
 #include "StarflightTextUVComponent.generated.h"
 
 class UTextureRenderTarget2D;
+class UTexture2D;
 class UStarflightEmulatorSubsystem;
 
 /**
@@ -38,10 +39,23 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Starflight|TextUV")
 	UTextureRenderTarget2D* TextUVRenderTarget = nullptr;
 
+	/** Packed Content|Font|Char|Flags data (RGBA8, 160x200). */
+	UPROPERTY(BlueprintReadOnly, Category = "Starflight|TextUV")
+	UTexture2D* RotoResourceContentFontCharFlags = nullptr;
+
+	/** Packed GlyphX|GlyphY|GlyphWidth|GlyphHeight data (RGBA16, 160x200). */
+	UPROPERTY(BlueprintReadOnly, Category = "Starflight|TextUV")
+	UTexture2D* RotoResourceGlyphXYWH = nullptr;
+
+	/** Packed FG/BG color data (RG8, 160x200). */
+	UPROPERTY(BlueprintReadOnly, Category = "Starflight|TextUV")
+	UTexture2D* RotoResourceFGBGColor = nullptr;
+
 private:
 	void HandleRotoscopeMeta(const FStarflightRotoTexel* Texels, int32 Width, int32 Height);
 	void UpdateUVTexture();
 	void InitializeRenderTarget();
+	void InitializeRotoDataResources();
 
 	TWeakObjectPtr<UStarflightEmulatorSubsystem> EmulatorSubsystem;
 	FDelegateHandle MetaListenerHandle;

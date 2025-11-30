@@ -1,6 +1,7 @@
 #include "StarflightTextUVComponent.h"
 
 #include "Engine/TextureRenderTarget2D.h"
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
 #include "HAL/CriticalSection.h"
@@ -9,6 +10,14 @@
 #include "Templates/SharedPointer.h"
 #include "StarflightEmulatorSubsystem.h"
 #include "RHICommandList.h"
+#include "RHIResources.h"
+
+namespace
+{
+constexpr int32 GRotoSourceWidth = 160;
+constexpr int32 GRotoSourceHeight = 200;
+constexpr int32 GRotoSourcePixelCount = GRotoSourceWidth * GRotoSourceHeight;
+}
 
 UStarflightTextUVComponent::UStarflightTextUVComponent()
 {
@@ -21,6 +30,7 @@ void UStarflightTextUVComponent::BeginPlay()
 	Super::BeginPlay();
 
 	InitializeRenderTarget();
+	InitializeRotoDataResources();
 
 	if (UWorld* World = GetWorld())
 	{
@@ -77,19 +87,59 @@ void UStarflightTextUVComponent::InitializeRenderTarget()
 	}
 
 	TextUVRenderTarget = NewObject<UTextureRenderTarget2D>(this);
-	if (TextUVRenderTarget)
+	checkf(TextUVRenderTarget, TEXT("Failed to allocate TextUVRenderTarget"));
+
+	TextUVRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA16f;
+	TextUVRenderTarget->ClearColor = FLinearColor::Black;
+	TextUVRenderTarget->bAutoGenerateMips = false;
+	TextUVRenderTarget->bCanCreateUAV = true;
+	TextUVRenderTarget->Filter = TF_Bilinear;
+	TextUVRenderTarget->AddressX = TA_Clamp;
+	TextUVRenderTarget->AddressY = TA_Clamp;
+	TextUVRenderTarget->SRGB = false;
+	TextUVRenderTarget->InitAutoFormat(FMath::Max(16, OutputWidth), FMath::Max(16, OutputHeight));
+	TextUVRenderTarget->UpdateResourceImmediate(true);
+	bRenderTargetInitialized = true;
+}
+
+void UStarflightTextUVComponent::InitializeRotoDataResources()
+{
+	if (RotoResourceContentFontCharFlags &&
+		RotoResourceGlyphXYWH &&
+		RotoResourceFGBGColor)
 	{
-		TextUVRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA16f;
-		TextUVRenderTarget->ClearColor = FLinearColor::Black;
-		TextUVRenderTarget->bAutoGenerateMips = false;
-		TextUVRenderTarget->bCanCreateUAV = true;
-		TextUVRenderTarget->Filter = TF_Bilinear;
-		TextUVRenderTarget->AddressX = TA_Clamp;
-		TextUVRenderTarget->AddressY = TA_Clamp;
-		TextUVRenderTarget->SRGB = false;
-		TextUVRenderTarget->InitAutoFormat(FMath::Max(16, OutputWidth), FMath::Max(16, OutputHeight));
-		TextUVRenderTarget->UpdateResourceImmediate(true);
-		bRenderTargetInitialized = true;
+		return;
+	}
+
+	auto ConfigureDataTexture = [](UTexture2D* Texture, const TCHAR* DebugName)
+	{
+		checkf(Texture, TEXT("Failed to create %s"), DebugName);
+		Texture->SRGB = false;
+		Texture->Filter = TF_Nearest;
+		Texture->AddressX = TA_Clamp;
+		Texture->AddressY = TA_Clamp;
+		Texture->CompressionSettings = TextureCompressionSettings::TC_VectorDisplacementmap;
+		Texture->MipGenSettings = TextureMipGenSettings::TMGS_NoMipmaps;
+		Texture->NeverStream = true;
+		Texture->UpdateResource();
+	};
+
+	if (!RotoResourceContentFontCharFlags)
+	{
+		RotoResourceContentFontCharFlags = UTexture2D::CreateTransient(GRotoSourceWidth, GRotoSourceHeight, PF_R8G8B8A8);
+		ConfigureDataTexture(RotoResourceContentFontCharFlags, TEXT("RotoResourceContentFontCharFlags"));
+	}
+
+	if (!RotoResourceGlyphXYWH)
+	{
+		RotoResourceGlyphXYWH = UTexture2D::CreateTransient(GRotoSourceWidth, GRotoSourceHeight, PF_R16G16B16A16_UINT);
+		ConfigureDataTexture(RotoResourceGlyphXYWH, TEXT("RotoResourceGlyphXYWH"));
+	}
+
+	if (!RotoResourceFGBGColor)
+	{
+		RotoResourceFGBGColor = UTexture2D::CreateTransient(GRotoSourceWidth, GRotoSourceHeight, PF_R8G8);
+		ConfigureDataTexture(RotoResourceFGBGColor, TEXT("RotoResourceFGBGColor"));
 	}
 }
 
@@ -117,10 +167,11 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 		InitializeRenderTarget();
 	}
 
-	if (!TextUVRenderTarget)
-	{
-		return;
-	}
+	InitializeRotoDataResources();
+
+	checkf(TextUVRenderTarget, TEXT("TextUVRenderTarget should have been initialized before UpdateUVTexture"));
+	checkf(RotoResourceContentFontCharFlags && RotoResourceGlyphXYWH && RotoResourceFGBGColor,
+		TEXT("Roto data textures must be initialized before UpdateUVTexture"));
 
 	TArray<FStarflightRotoTexel> LocalTexels;
 	int32 LocalWidth = 0;
@@ -145,6 +196,13 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 		return;
 	}
 
+	checkf(LocalWidth == GRotoSourceWidth && LocalHeight == GRotoSourceHeight,
+		TEXT("Rotoscope buffer must remain %dx%d but received %dx%d"),
+		GRotoSourceWidth, GRotoSourceHeight, LocalWidth, LocalHeight);
+
+	checkf(LocalTexels.Num() == GRotoSourcePixelCount,
+		TEXT("Unexpected rotoscope texel count (%d)"), LocalTexels.Num());
+
 	const int32 DestW = FMath::Max(16, OutputWidth);
 	const int32 DestH = FMath::Max(16, OutputHeight);
 	const float ScaleX = static_cast<float>(LocalWidth) / static_cast<float>(DestW);
@@ -152,6 +210,15 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 
 	TArray<FFloat16Color> PixelData;
 	PixelData.SetNumUninitialized(DestW * DestH);
+
+	TArray<uint8> ContentFontCharFlagsData;
+	ContentFontCharFlagsData.SetNumUninitialized(GRotoSourcePixelCount * 4);
+
+	TArray<uint16> GlyphXYWHData;
+	GlyphXYWHData.SetNumUninitialized(GRotoSourcePixelCount * 4);
+
+	TArray<uint8> FGBGColorData;
+	FGBGColorData.SetNumUninitialized(GRotoSourcePixelCount * 2);
 
 	for (int32 y = 0; y < DestH; ++y)
 	{
@@ -181,31 +248,83 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 		}
 	}
 
-	FTextureRenderTargetResource* Resource = TextUVRenderTarget->GameThread_GetRenderTargetResource();
-	if (!Resource)
+	for (int32 Index = 0; Index < GRotoSourcePixelCount; ++Index)
 	{
-		return;
+		const FStarflightRotoTexel& Texel = LocalTexels[Index];
+
+		const int32 ContentOffset = Index * 4;
+		ContentFontCharFlagsData[ContentOffset + 0] = Texel.Content;
+		ContentFontCharFlagsData[ContentOffset + 1] = Texel.FontNumber;
+		ContentFontCharFlagsData[ContentOffset + 2] = Texel.Character;
+		ContentFontCharFlagsData[ContentOffset + 3] = Texel.Flags;
+
+		const int32 GlyphOffset = Index * 4;
+		GlyphXYWHData[GlyphOffset + 0] = static_cast<uint16>(Texel.GlyphX);
+		GlyphXYWHData[GlyphOffset + 1] = static_cast<uint16>(Texel.GlyphY);
+		GlyphXYWHData[GlyphOffset + 2] = static_cast<uint16>(Texel.GlyphWidth);
+		GlyphXYWHData[GlyphOffset + 3] = static_cast<uint16>(Texel.GlyphHeight);
+
+		const int32 ColorOffset = Index * 2;
+		FGBGColorData[ColorOffset + 0] = Texel.FGColor;
+		FGBGColorData[ColorOffset + 1] = Texel.BGColor;
 	}
 
-	TSharedPtr<TArray<FFloat16Color>, ESPMode::ThreadSafe> Buffer = MakeShared<TArray<FFloat16Color>, ESPMode::ThreadSafe>(MoveTemp(PixelData));
+	FTextureRenderTargetResource* Resource = TextUVRenderTarget->GameThread_GetRenderTargetResource();
+	checkf(Resource, TEXT("TextUVRenderTarget resource missing"));
 
-	ENQUEUE_RENDER_COMMAND(UpdateStarflightTextUV)(
-		[TexResource = Resource, Buffer, DestW, DestH](FRHICommandListImmediate& RHICmdList)
+	FTextureResource* ContentResource = RotoResourceContentFontCharFlags->GetResource();
+	checkf(ContentResource, TEXT("RotoResourceContentFontCharFlags missing resource"));
+	FTextureResource* GlyphResource = RotoResourceGlyphXYWH->GetResource();
+	checkf(GlyphResource, TEXT("RotoResourceGlyphXYWH missing resource"));
+	FTextureResource* ColorResource = RotoResourceFGBGColor->GetResource();
+	checkf(ColorResource, TEXT("RotoResourceFGBGColor missing resource"));
+
+	TSharedPtr<TArray<FFloat16Color>, ESPMode::ThreadSafe> Buffer = MakeShared<TArray<FFloat16Color>, ESPMode::ThreadSafe>(MoveTemp(PixelData));
+	TSharedPtr<TArray<uint8>, ESPMode::ThreadSafe> ContentBuffer = MakeShared<TArray<uint8>, ESPMode::ThreadSafe>(MoveTemp(ContentFontCharFlagsData));
+	TSharedPtr<TArray<uint16>, ESPMode::ThreadSafe> GlyphBuffer = MakeShared<TArray<uint16>, ESPMode::ThreadSafe>(MoveTemp(GlyphXYWHData));
+	TSharedPtr<TArray<uint8>, ESPMode::ThreadSafe> FGBGBuffer = MakeShared<TArray<uint8>, ESPMode::ThreadSafe>(MoveTemp(FGBGColorData));
+
+	const FTexture2DRHIRef ContentTextureRHI = ContentResource->GetTexture2DRHI();
+	checkf(ContentTextureRHI.IsValid(), TEXT("Content texture RHI missing"));
+	const FTexture2DRHIRef GlyphTextureRHI = GlyphResource->GetTexture2DRHI();
+	checkf(GlyphTextureRHI.IsValid(), TEXT("Glyph texture RHI missing"));
+	const FTexture2DRHIRef ColorTextureRHI = ColorResource->GetTexture2DRHI();
+	checkf(ColorTextureRHI.IsValid(), TEXT("Color texture RHI missing"));
+
+	ENQUEUE_RENDER_COMMAND(UpdateStarflightTextResources)(
+		[TexResource = Resource,
+			ContentTextureRHI,
+			GlyphTextureRHI,
+			ColorTextureRHI,
+			Buffer,
+			ContentBuffer,
+			GlyphBuffer,
+			FGBGBuffer,
+			DestW,
+			DestH](FRHICommandListImmediate& RHICmdList)
 		{
-			if (!TexResource)
-			{
-				return;
-			}
+			check(TexResource);
+			check(ContentTextureRHI.IsValid());
+			check(GlyphTextureRHI.IsValid());
+			check(ColorTextureRHI.IsValid());
 
 			FRHITexture2D* TextureRHI = TexResource->GetTexture2DRHI();
-			if (!TextureRHI)
-			{
-				return;
-			}
+			check(TextureRHI);
 
 			const uint32 SrcPitch = DestW * sizeof(FFloat16Color);
 			const FUpdateTextureRegion2D Region(0, 0, 0, 0, DestW, DestH);
 			RHICmdList.UpdateTexture2D(TextureRHI, 0, Region, SrcPitch, reinterpret_cast<const uint8*>(Buffer->GetData()));
+
+			const FUpdateTextureRegion2D RotoRegion(0, 0, 0, 0, GRotoSourceWidth, GRotoSourceHeight);
+
+			const uint32 ContentPitch = GRotoSourceWidth * sizeof(uint8) * 4;
+			RHICmdList.UpdateTexture2D(ContentTextureRHI, 0, RotoRegion, ContentPitch, ContentBuffer->GetData());
+
+			const uint32 GlyphPitch = GRotoSourceWidth * sizeof(uint16) * 4;
+			RHICmdList.UpdateTexture2D(GlyphTextureRHI, 0, RotoRegion, GlyphPitch, reinterpret_cast<const uint8*>(GlyphBuffer->GetData()));
+
+			const uint32 ColorPitch = GRotoSourceWidth * sizeof(uint8) * 2;
+			RHICmdList.UpdateTexture2D(ColorTextureRHI, 0, RotoRegion, ColorPitch, FGBGBuffer->GetData());
 		});
 
 	ProcessedRevision = LocalRevision;
