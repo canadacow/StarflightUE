@@ -198,7 +198,17 @@ void AStarflightPlayerController::BeginPlay()
     EnsureCrossfadeSetup();
     LogCrossfadeSetup(TEXT("BeginPlay"));
 
-    ResolveStationAstronaut();
+    if (!StationAstronautActor)
+    {
+        ResolveStationAstronaut();
+    }
+    if(!StationActor)
+    {
+        ResolveStation();
+    }
+    checkf(StationAstronautActor, TEXT("BeginPlay: StationAstronautActor must be assigned."));
+    checkf(StationActor, TEXT("BeginPlay: StationActor must be assigned."));
+    ResolveAstronautAnchors();
     BindSpaceManListener();
 
     // Show main menu on start
@@ -779,113 +789,102 @@ void AStarflightPlayerController::ToggleStationCamera()
 
 void AStarflightPlayerController::BindSpaceManListener()
 {
-	if (SpaceManListenerHandle.IsValid())
-	{
-		UE_LOG(LogTemp, Log, TEXT("AStarflightPlayerController::BindSpaceManListener: already bound (Handle valid)."));
-		return;
-	}
+	checkf(!SpaceManListenerHandle.IsValid(), TEXT("BindSpaceManListener called while already bound."));
 
-	if (UWorld* World = GetWorld())
-	{
-		if (UGameInstance* GameInstance = World->GetGameInstance())
-		{
-			if (UStarflightEmulatorSubsystem* Subsystem = GameInstance->GetSubsystem<UStarflightEmulatorSubsystem>())
-			{
-				CachedEmulatorSubsystem = Subsystem;
-				TWeakObjectPtr<AStarflightPlayerController> WeakThis(this);
-				SpaceManListenerHandle = Subsystem->RegisterSpaceManListener(
-					[WeakThis](uint16 PixelX, uint16 PixelY)
-					{
-						if (AStarflightPlayerController* StrongThis = WeakThis.Get())
-						{
-							StrongThis->HandleSpaceManMove(PixelX, PixelY);
-						}
-					});
+	UWorld* World = GetWorld();
+	checkf(World, TEXT("BindSpaceManListener: World is null."));
 
-				UE_LOG(LogTemp, Log,
-					TEXT("AStarflightPlayerController::BindSpaceManListener: registered spaceman listener (Handle is valid=%d)."),
-					SpaceManListenerHandle.IsValid() ? 1 : 0);
-			}
-			else
-			{
-			UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController::BindSpaceManListener: UStarflightEmulatorSubsystem not found on GameInstance."));
-			}
-		}
-		else
+	UGameInstance* GameInstance = World->GetGameInstance();
+	checkf(GameInstance, TEXT("BindSpaceManListener: GameInstance is null."));
+
+	UStarflightEmulatorSubsystem* Subsystem = GameInstance->GetSubsystem<UStarflightEmulatorSubsystem>();
+	checkf(Subsystem, TEXT("BindSpaceManListener: UStarflightEmulatorSubsystem not found on GameInstance."));
+
+	CachedEmulatorSubsystem = Subsystem;
+	TWeakObjectPtr<AStarflightPlayerController> WeakThis(this);
+	SpaceManListenerHandle = Subsystem->RegisterSpaceManListener(
+		[WeakThis](uint16 PixelX, uint16 PixelY)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController::BindSpaceManListener: GameInstance is null."));
-		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController::BindSpaceManListener: World is null."));
-	}
+			if (AStarflightPlayerController* StrongThis = WeakThis.Get())
+			{
+				StrongThis->HandleSpaceManMove(PixelX, PixelY);
+			}
+		});
+
+	checkf(SpaceManListenerHandle.IsValid(), TEXT("BindSpaceManListener: RegisterSpaceManListener returned invalid handle."));
 }
 
 void AStarflightPlayerController::UnbindSpaceManListener()
 {
-	if (UStarflightEmulatorSubsystem* Subsystem = CachedEmulatorSubsystem.Get())
-	{
-		if (SpaceManListenerHandle.IsValid())
-		{
-			Subsystem->UnregisterSpaceManListener(SpaceManListenerHandle);
-			SpaceManListenerHandle.Reset();
-		}
-	}
-	else
-	{
-		SpaceManListenerHandle.Reset();
-	}
+	UStarflightEmulatorSubsystem* Subsystem = CachedEmulatorSubsystem.Get();
+	checkf(Subsystem, TEXT("UnbindSpaceManListener: CachedEmulatorSubsystem is null."));
+	checkf(SpaceManListenerHandle.IsValid(), TEXT("UnbindSpaceManListener: Handle is not valid."));
 
+	Subsystem->UnregisterSpaceManListener(SpaceManListenerHandle);
+	SpaceManListenerHandle.Reset();
 	CachedEmulatorSubsystem.Reset();
 }
 
 void AStarflightPlayerController::ResolveStationAstronaut()
 {
-	if (StationAstronautActor || !bAutoFindAstronautActor)
-	{
-		return;
-	}
+	checkf(!StationAstronautActor, TEXT("ResolveStationAstronaut should only be called when StationAstronautActor is null."));
 
 	UWorld* World = GetWorld();
-	if (!World)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("ResolveStationAstronaut: World is null."));
-		return;
-	}
+	checkf(World, TEXT("ResolveStationAstronaut: World is null."));
 
 	TArray<AActor*> AstronautActors;
 	UGameplayStatics::GetAllActorsWithTag(World, FName(TEXT("AstronautActor")), AstronautActors);
-	if (AstronautActors.Num() > 0)
-	{
-		StationAstronautActor = AstronautActors[0];
-		UE_LOG(LogTemp, Log, TEXT("Bound StationAstronautActor to %s via tag"), *StationAstronautActor->GetName());
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController::ResolveStationAstronaut: Could not find actor with tag 'AstronautActor'."));
-	}
+	checkf(AstronautActors.Num() > 0, TEXT("ResolveStationAstronaut: Could not find actor with tag 'AstronautActor'."));
 
-	if (!StationAstronautActor)
+	StationAstronautActor = AstronautActors[0];
+}
+
+void AStarflightPlayerController::ResolveStation()
+{
+	checkf(!StationActor, TEXT("ResolveStationAstronaut should only be called when StationAstronautActor is null."));
+
+	UWorld* World = GetWorld();
+	checkf(World, TEXT("ResolveStation: World is null."));
+
+	TArray<AActor*> StationActors;
+	UGameplayStatics::GetAllActorsWithTag(World, FName(TEXT("StationActor")), StationActors);
+	checkf(StationActors.Num() > 0, TEXT("ResolveStation: Could not find actor with tag 'StationActor'."));
+
+	StationActor = StationActors[0];
+}
+
+void AStarflightPlayerController::ResolveAstronautAnchors()
+{
+	checkf(StationActor, TEXT("ResolveAstronautAnchors requires StationActor to be assigned."));
+
+	constexpr TCHAR OriginComponentName[] = TEXT("AstronautAnchorOrigin");
+	constexpr TCHAR XComponentName[] = TEXT("AstronautAnchorX");
+	constexpr TCHAR YComponentName[] = TEXT("AstronautAnchorY");
+
+	TInlineComponentArray<USceneComponent*> Components(StationActor);
+	auto FindRequiredComponent = [&](const TCHAR* ComponentName) -> USceneComponent*
 	{
-		UE_LOG(LogTemp, Warning, TEXT("AStarflightPlayerController: Unable to auto-resolve astronaut actor. Assign StationAstronautActor in the controller defaults."));
-	}
+		for (USceneComponent* Component : Components)
+		{
+			if (Component && Component->GetName() == ComponentName)
+			{
+				return Component;
+			}
+		}
+
+		checkf(false, TEXT("ResolveAstronautAnchors: Component '%s' not found on actor '%s'."),
+			ComponentName, *StationActor->GetName());
+		return nullptr;
+	};
+
+	AstronautAnchorOrigin = FindRequiredComponent(OriginComponentName);
+	AstronautAnchorX = FindRequiredComponent(XComponentName);
+	AstronautAnchorY = FindRequiredComponent(YComponentName);
 }
 
 void AStarflightPlayerController::HandleSpaceManMove(uint16 PixelX, uint16 PixelY)
 {
-	if (!StationAstronautActor)
-	{
-		if (bAutoFindAstronautActor)
-		{
-			ResolveStationAstronaut();
-		}
-
-		if (!StationAstronautActor)
-		{
-			return;
-		}
-	}
+	checkf(StationAstronautActor, TEXT("HandleSpaceManMove called with StationAstronautActor unset."));
 
 	bool bValid = false;
 	FVector TargetLocation = ConvertSpaceManPixelToWorld(PixelX, PixelY, bValid);
@@ -911,10 +910,9 @@ void AStarflightPlayerController::HandleSpaceManMove(uint16 PixelX, uint16 Pixel
 
 bool AStarflightPlayerController::ComputeStationCameraRay(float PixelX, float PixelY, FVector& OutRayOrigin, FVector& OutRayDirection) const
 {
-	// Match the original C++ graphics.cpp mapping as closely as possible:
+	// Match the original C++ graphics.cpp mapping:
 	//   float ndcX = (2.0f * x / GRAPHICS_MODE_WIDTH) - 1.0f;
 	//   float ndcY = 1.0f - (2.0f * y / GRAPHICS_MODE_HEIGHT);
-
 	const float XNorm = PixelX / SpaceManTextureWidth;
 	const float YNorm = PixelY / SpaceManTextureHeight;
 
@@ -923,50 +921,28 @@ bool AStarflightPlayerController::ComputeStationCameraRay(float PixelX, float Pi
 		? (1.0f - (2.0f * YNorm))   // Default: emulate OG EGA with origin at top-left.
 		: ((2.0f * YNorm) - 1.0f);  // Optional: direct bottom-left mapping if desired.
 
-	// Camera selection mirrors the render path: prefer StationCapture, then StationCamera,
-	// then fall back to the main PlayerCameraManager.
-	FVector CameraLocation = FVector::ZeroVector;
+	FVector  CameraLocation = FVector::ZeroVector;
 	FRotator CameraRotation = FRotator::ZeroRotator;
-	float FieldOfView = 60.0f;
+	float    FieldOfView    = 60.0f;
 
-	if (StationCapture)
-	{
-		CameraLocation = StationCapture->GetComponentLocation();
-		CameraRotation = StationCapture->GetComponentRotation();
-		FieldOfView = StationCapture->FOVAngle;
-	}
-	else if (StationCamera)
-	{
-		if (const UCameraComponent* CameraComp = StationCamera->FindComponentByClass<UCameraComponent>())
-		{
-			CameraLocation = CameraComp->GetComponentLocation();
-			CameraRotation = CameraComp->GetComponentRotation();
-			FieldOfView = CameraComp->FieldOfView;
-		}
-		else
-		{
-			CameraLocation = StationCamera->GetActorLocation();
-			CameraRotation = StationCamera->GetActorRotation();
-		}
-	}
-	else if (const APlayerCameraManager* PCM = PlayerCameraManager)
-	{
-		CameraLocation = PCM->GetCameraLocation();
-		CameraRotation = PCM->GetCameraRotation();
-		FieldOfView = PCM->GetFOVAngle();
-	}
-	else
-	{
-		return false;
-	}
+	// Per user instruction: StationCamera is mandatory and must expose a UCameraComponent. No fallbacks.
+	checkf(StationCamera, TEXT("AStarflightPlayerController::ComputeStationCameraRay: StationCamera is null. Configure StationCamera on the controller."));
+
+	const UCameraComponent* CameraComp = StationCamera->FindComponentByClass<UCameraComponent>();
+	checkf(CameraComp, TEXT("AStarflightPlayerController::ComputeStationCameraRay: StationCamera must have a UCameraComponent."));
+
+	CameraLocation = CameraComp->GetComponentLocation();
+	CameraRotation = CameraComp->GetComponentRotation();
+	FieldOfView    = CameraComp->FieldOfView;
 
 	if (!FMath::IsFinite(FieldOfView) || FieldOfView <= KINDA_SMALL_NUMBER)
 	{
 		FieldOfView = 60.0f;
 	}
 
-	const float Aspect = SpaceManTextureWidth / SpaceManTextureHeight;
-	const float TanHalfFov = FMath::Tan(FMath::DegreesToRadians(FieldOfView) * 0.5f);
+	// Use the 160x200 texture aspect, just like the original GRAPHICS_MODE_WIDTH/HEIGHT.
+	const float Aspect      = SpaceManTextureWidth / SpaceManTextureHeight;
+	const float TanHalfFov  = FMath::Tan(FMath::DegreesToRadians(FieldOfView) * 0.5f);
 
 	FVector RayDirCamera(1.0f, NdX * TanHalfFov * Aspect, NdY * TanHalfFov);
 	RayDirCamera = RayDirCamera.GetSafeNormal();
@@ -975,7 +951,7 @@ bool AStarflightPlayerController::ComputeStationCameraRay(float PixelX, float Pi
 		return false;
 	}
 
-	OutRayOrigin = CameraLocation;
+	OutRayOrigin    = CameraLocation;
 	OutRayDirection = CameraRotation.RotateVector(RayDirCamera).GetSafeNormal();
 	return !OutRayDirection.IsNearlyZero();
 }
@@ -1002,16 +978,32 @@ FVector AStarflightPlayerController::ConvertSpaceManPixelToWorld(uint16 PixelX, 
 		return StationAstronautActor->GetActorLocation();
 	}
 
-	const FVector PlaneOrigin = AstronautAnchorOrigin ? AstronautAnchorOrigin->GetComponentLocation() : StationAstronautActor->GetActorLocation();
-	const FVector PlaneNormalLocal = AstronautPlaneNormalLocal.GetSafeNormal();
-	FVector PlaneNormal = PlaneNormalLocal.IsNearlyZero()
-		? StationAstronautActor->GetActorUpVector().GetSafeNormal()
-		: StationAstronautActor->GetActorTransform().TransformVectorNoScale(PlaneNormalLocal).GetSafeNormal();
+	const FTransform AstronautTransform = StationAstronautActor->GetActorTransform();
 
-	if (PlaneNormal.IsNearlyZero())
+	checkf(AstronautAnchorOrigin, TEXT("ConvertSpaceManPixelToWorld: AstronautAnchorOrigin must be assigned."));
+	checkf(AstronautAnchorX, TEXT("ConvertSpaceManPixelToWorld: AstronautAnchorX must be assigned."));
+	checkf(AstronautAnchorY, TEXT("ConvertSpaceManPixelToWorld: AstronautAnchorY must be assigned."));
+
+	FVector PlaneOrigin = AstronautAnchorOrigin->GetComponentLocation();
+	PlaneOrigin += AstronautTransform.TransformVectorNoScale(AstronautPlaneOriginLocalOffset);
+
+	const FVector AxisXRaw = AstronautAnchorX->GetComponentLocation() - PlaneOrigin;
+	const FVector AxisYRaw = AstronautAnchorY->GetComponentLocation() - PlaneOrigin;
+
+	FVector PlaneNormal = FVector::CrossProduct(AxisYRaw, AxisXRaw).GetSafeNormal();
+	checkf(!PlaneNormal.IsNearlyZero(), TEXT("ConvertSpaceManPixelToWorld: AstronautAnchor axes must not be colinear."));
+
+	auto ProjectOntoPlane = [&](const FVector& Vec) -> FVector
 	{
-		PlaneNormal = StationAstronautActor->GetActorUpVector().GetSafeNormal();
-	}
+		return Vec - FVector::DotProduct(Vec, PlaneNormal) * PlaneNormal;
+	};
+
+	FVector AxisX = ProjectOntoPlane(AxisXRaw);
+	FVector AxisY = ProjectOntoPlane(AxisYRaw);
+
+	checkf(AxisX.Normalize(), TEXT("ConvertSpaceManPixelToWorld: Failed to normalize AstronautAnchorX axis."));
+	AxisY = AxisY - AxisX * FVector::DotProduct(AxisY, AxisX);
+	checkf(AxisY.Normalize(), TEXT("ConvertSpaceManPixelToWorld: Failed to normalize AstronautAnchorY axis."));
 
 	const float Denominator = FVector::DotProduct(RayDirection, PlaneNormal);
 	if (FMath::Abs(Denominator) <= KINDA_SMALL_NUMBER)
@@ -1025,7 +1017,30 @@ FVector AStarflightPlayerController::ConvertSpaceManPixelToWorld(uint16 PixelX, 
 		return StationAstronautActor->GetActorLocation();
 	}
 
-	const FVector IntersectionPoint = RayOrigin + RayDirection * Distance;
+	FVector IntersectionPoint = RayOrigin + RayDirection * Distance;
+
+	// Optional in-plane tweaks: stretch along local X/Y and scale along the walk-plane normal (Z).
+	const bool bStretchX = !FMath::IsNearlyEqual(AstronautPlaneXStretch, 1.0f);
+	const bool bStretchY = !FMath::IsNearlyEqual(AstronautPlaneYStretch, 1.0f);
+	const bool bScaleZ   = !FMath::IsNearlyEqual(AstronautPlaneZScale, 1.0f);
+	if (bStretchX || bStretchY || bScaleZ)
+	{
+		const FVector ToPoint = IntersectionPoint - PlaneOrigin;
+
+		const float XCoord = FVector::DotProduct(ToPoint, AxisX);
+		const float YCoord = FVector::DotProduct(ToPoint, AxisY);
+		const float NCoord = FVector::DotProduct(ToPoint, PlaneNormal);
+
+		const float ScaledX = bStretchX ? (XCoord * AstronautPlaneXStretch) : XCoord;
+		const float ScaledY = bStretchY ? (YCoord * AstronautPlaneYStretch) : YCoord;
+		const float ScaledN = bScaleZ   ? (NCoord * AstronautPlaneZScale)   : NCoord;
+
+		IntersectionPoint = PlaneOrigin
+			+ AxisX       * ScaledX
+			+ AxisY       * ScaledY
+			+ PlaneNormal * ScaledN;
+	}
+
 	bOutValid = true;
 	return IntersectionPoint;
 }

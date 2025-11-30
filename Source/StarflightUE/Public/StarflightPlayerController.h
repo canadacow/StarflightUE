@@ -231,6 +231,8 @@ private:
     void BindSpaceManListener();
     void UnbindSpaceManListener();
     void ResolveStationAstronaut();
+    void ResolveStation();
+    void ResolveAstronautAnchors();
     void HandleSpaceManMove(uint16 PixelX, uint16 PixelY);
     FVector ConvertSpaceManPixelToWorld(uint16 PixelX, uint16 PixelY, bool& bOutValid) const;
     bool ComputeStationCameraRay(float PixelX, float PixelY, FVector& OutRayOrigin, FVector& OutRayDirection) const;
@@ -239,6 +241,9 @@ private:
     /** Actor that contains the astronaut mesh that should be driven by emulator events. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
     AActor* StationAstronautActor = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    AActor* StationActor = nullptr;
 
     /** Optional scene component that represents the origin of the astronaut plane (pixel 0,0). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
@@ -251,6 +256,10 @@ private:
     /** Optional scene component that defines the +Y direction of the astronaut plane (pixel height). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
     USceneComponent* AstronautAnchorY = nullptr;
+
+    /** Local-space offset applied to the astronaut plane origin before projection (useful to match OG planeD). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    FVector AstronautPlaneOriginLocalOffset = FVector::ZeroVector;
 
     /** Fallback scale (in centimeters) used when no anchor components are provided. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
@@ -267,6 +276,18 @@ private:
     /** Plane normal defined in astronaut local space, mimicking the original emulator tilt. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
     FVector AstronautPlaneNormalLocal = FVector(0.0f, -0.05f, 1.0f);
+
+    /** Additional horizontal stretch along the station's local +X axis after ray/plane intersection (1.0 = no stretch). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    float AstronautPlaneXStretch = 1.0f;
+
+    /** Additional stretch along the station's local +Y axis (forward) after ray/plane intersection (1.0 = no stretch). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    float AstronautPlaneYStretch = 1.0f;
+
+    /** Scale applied along the walk plane normal after ray/plane intersection (1.0 = original height, <1 = flatter). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
+    float AstronautPlaneZScale = 1.0f;
 
     /** Flip the incoming Y axis (native EGA coordinates place Y=0 at the top). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
