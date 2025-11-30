@@ -36,19 +36,19 @@ public:
 	int32 OutputHeight = 640;
 
 	/** Render target updated every frame with UV + glyph selection data. */
-	UPROPERTY(BlueprintReadOnly, Category = "Starflight|TextUV")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Starflight|TextUV", meta = (AllowPrivateAccess = "true"))
 	UTextureRenderTarget2D* TextUVRenderTarget = nullptr;
 
 	/** Packed Content|Font|Char|Flags data (RGBA8, 160x200). */
-	UPROPERTY(BlueprintReadOnly, Category = "Starflight|TextUV")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Starflight|TextUV", meta = (AllowPrivateAccess = "true"))
 	UTexture2D* RotoResourceContentFontCharFlags = nullptr;
 
 	/** Packed GlyphX|GlyphY|GlyphWidth|GlyphHeight data (RGBA16, 160x200). */
-	UPROPERTY(BlueprintReadOnly, Category = "Starflight|TextUV")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Starflight|TextUV", meta = (AllowPrivateAccess = "true"))
 	UTexture2D* RotoResourceGlyphXYWH = nullptr;
 
 	/** Packed FG/BG color data (RG8, 160x200). */
-	UPROPERTY(BlueprintReadOnly, Category = "Starflight|TextUV")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Starflight|TextUV", meta = (AllowPrivateAccess = "true"))
 	UTexture2D* RotoResourceFGBGColor = nullptr;
 
 private:
