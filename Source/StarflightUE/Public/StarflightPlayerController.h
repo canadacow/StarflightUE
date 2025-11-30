@@ -279,11 +279,11 @@ private:
 
     /** Additional horizontal stretch along the station's local +X axis after ray/plane intersection (1.0 = no stretch). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
-    float AstronautPlaneXStretch = 1.0f;
+    float AstronautPlaneXStretch = 1.25f;
 
     /** Additional stretch along the station's local +Y axis (forward) after ray/plane intersection (1.0 = no stretch). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
-    float AstronautPlaneYStretch = 1.0f;
+    float AstronautPlaneYStretch = 0.8f;
 
     /** Scale applied along the walk plane normal after ray/plane intersection (1.0 = original height, <1 = flatter). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Station", meta = (AllowPrivateAccess = "true"))
