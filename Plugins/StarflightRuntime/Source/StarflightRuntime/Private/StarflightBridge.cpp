@@ -26,6 +26,7 @@ namespace
 	FrameSinkFn gFrameSink;
 	AudioSinkFn gAudioSink;
 	static RotoscopeSinkFn gRotoSink;
+	static RotoscopeMetaSinkFn gRotoMetaSink;
 	SpaceManMoveSinkFn gSpaceManSink;
 	StatusSinkFn gStatusSink;
 	FStarflightStatus gLastStatus{ FStarflightEmulatorState::Off, 0u, 0u };
@@ -56,6 +57,12 @@ void SetRotoscopeSink(RotoscopeSinkFn cb)
 {
 	std::lock_guard<std::mutex> lock(gSinksMutex);
 	gRotoSink = std::move(cb);
+}
+
+void SetRotoscopeMetaSink(RotoscopeMetaSinkFn cb)
+{
+	std::lock_guard<std::mutex> lock(gSinksMutex);
+	gRotoMetaSink = std::move(cb);
 }
 
 void StartStarflight()
@@ -191,6 +198,16 @@ void EmitRotoscope(const uint8_t* bgra, int w, int h, int pitch)
 		sink = gRotoSink;
 	}
 	if (sink) { sink(bgra, w, h, pitch); }
+}
+
+void EmitRotoscopeMeta(const FStarflightRotoTexel* texels, int w, int h)
+{
+	RotoscopeMetaSinkFn sink;
+	{
+		std::lock_guard<std::mutex> lock(gSinksMutex);
+		sink = gRotoMetaSink;
+	}
+	if (sink) { sink(texels, w, h); }
 }
 
 void SetSpaceManMoveSink(SpaceManMoveSinkFn cb)

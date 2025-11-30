@@ -87,11 +87,13 @@ static inline uint32_t RotoDebugBGRA(uint8_t content)
     }
 }
 
-// Build and emit the 160x200 rotoscope debug buffer once per GraphicsUpdate
-static void EmitRotoscopeDebug()
+// Build and emit the 160x200 rotoscope debug buffer (and metadata) once per GraphicsUpdate
+static void EmitRotoscopeBuffers()
 {
     static std::vector<uint8_t> s_rotoDebug;
+	static std::vector<FStarflightRotoTexel> s_rotoMeta;
     s_rotoDebug.resize(GRAPHICS_MODE_WIDTH * GRAPHICS_MODE_HEIGHT * 4);
+	s_rotoMeta.resize(GRAPHICS_MODE_WIDTH * GRAPHICS_MODE_HEIGHT);
     std::lock_guard<std::mutex> rg(rotoscopePixelMutex);
     for (int y = 0; y < GRAPHICS_MODE_HEIGHT; ++y)
     {
@@ -104,9 +106,23 @@ static void EmitRotoscopeDebug()
             s_rotoDebug[o + 1] = (uint8_t)((bgra >> 8) & 0xFF);
             s_rotoDebug[o + 2] = (uint8_t)((bgra >> 16) & 0xFF);
             s_rotoDebug[o + 3] = (uint8_t)((bgra >> 24) & 0xFF);
+
+			FStarflightRotoTexel meta{};
+			meta.Content = static_cast<uint8_t>(rs.content);
+			meta.FontNumber = rs.textData.fontNum;
+			meta.Character = static_cast<uint8_t>(rs.textData.character);
+			meta.Flags = rs.textData.xormode;
+			meta.GlyphX = rs.blt_x;
+			meta.GlyphY = rs.blt_y;
+			meta.GlyphWidth = rs.blt_w;
+			meta.GlyphHeight = rs.blt_h;
+			meta.FGColor = rs.fgColor;
+			meta.BGColor = rs.bgColor;
+			s_rotoMeta[y * GRAPHICS_MODE_WIDTH + x] = meta;
         }
     }
     EmitRotoscope(s_rotoDebug.data(), GRAPHICS_MODE_WIDTH, GRAPHICS_MODE_HEIGHT, GRAPHICS_MODE_WIDTH * 4);
+	EmitRotoscopeMeta(s_rotoMeta.data(), GRAPHICS_MODE_WIDTH, GRAPHICS_MODE_HEIGHT);
 }
 
 void GraphicsInit()
@@ -211,8 +227,8 @@ void GraphicsUpdate()
         EmitFrame(s_framebuffer.data(), GRAPHICS_MODE_WIDTH, GRAPHICS_MODE_HEIGHT, GRAPHICS_MODE_WIDTH * 4);
     }
 
-    // Emit rotoscope debug buffer once per frame
-    EmitRotoscopeDebug();
+    // Emit rotoscope-derived buffers once per frame
+    EmitRotoscopeBuffers();
 }
 
 void GraphicsMode(int mode)

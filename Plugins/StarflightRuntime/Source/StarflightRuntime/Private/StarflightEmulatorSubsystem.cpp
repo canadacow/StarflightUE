@@ -56,6 +56,11 @@ void UStarflightEmulatorSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 		HandleRotoscope(BGRA, Width, Height, Pitch);
 	});
 
+	SetRotoscopeMetaSink([this](const FStarflightRotoTexel* Texels, int32 Width, int32 Height)
+	{
+		HandleRotoscopeMeta(Texels, Width, Height);
+	});
+
 	SetSpaceManMoveSink([this](uint16 PixelX, uint16 PixelY)
 	{
 		HandleSpaceManMove(PixelX, PixelY);
@@ -85,6 +90,7 @@ void UStarflightEmulatorSubsystem::Deinitialize()
 {
 	SetFrameSink(nullptr);
 	SetRotoscopeSink(nullptr);
+	SetRotoscopeMetaSink(nullptr);
 	SetSpaceManMoveSink(nullptr);
 	SetStatusSink(nullptr);
 
@@ -101,6 +107,11 @@ void UStarflightEmulatorSubsystem::Deinitialize()
 	{
 		FScopeLock RotoLock(&RotoscopeListenersMutex);
 		RotoscopeListeners.Reset();
+	}
+
+	{
+		FScopeLock RotoMetaLock(&RotoMetaListenersMutex);
+		RotoMetaListeners.Reset();
 	}
 
 	{
@@ -162,6 +173,28 @@ void UStarflightEmulatorSubsystem::UnregisterRotoscopeListener(FDelegateHandle H
 	});
 }
 
+FDelegateHandle UStarflightEmulatorSubsystem::RegisterRotoscopeMetaListener(FStarflightRotoMetaCallback&& Callback)
+{
+	const FDelegateHandle Handle(FDelegateHandle::GenerateNewHandle);
+	FScopeLock Lock(&RotoMetaListenersMutex);
+	RotoMetaListeners.Add(FStarflightRotoMetaListenerEntry{ Handle, MoveTemp(Callback) });
+	return Handle;
+}
+
+void UStarflightEmulatorSubsystem::UnregisterRotoscopeMetaListener(FDelegateHandle Handle)
+{
+	if (!Handle.IsValid())
+	{
+		return;
+	}
+
+	FScopeLock Lock(&RotoMetaListenersMutex);
+	RotoMetaListeners.RemoveAll([Handle](const FStarflightRotoMetaListenerEntry& Entry)
+	{
+		return Entry.Handle == Handle;
+	});
+}
+
 void UStarflightEmulatorSubsystem::HandleFrame(const uint8* BGRA, int32 Width, int32 Height, int32 Pitch)
 {
 	BroadcastFrame(BGRA, Width, Height, Pitch);
@@ -170,6 +203,11 @@ void UStarflightEmulatorSubsystem::HandleFrame(const uint8* BGRA, int32 Width, i
 void UStarflightEmulatorSubsystem::HandleRotoscope(const uint8* BGRA, int32 Width, int32 Height, int32 Pitch)
 {
 	BroadcastRotoscope(BGRA, Width, Height, Pitch);
+}
+
+void UStarflightEmulatorSubsystem::HandleRotoscopeMeta(const FStarflightRotoTexel* Texels, int32 Width, int32 Height)
+{
+	BroadcastRotoscopeMeta(Texels, Width, Height);
 }
 
 void UStarflightEmulatorSubsystem::BroadcastFrame(const uint8* BGRA, int32 Width, int32 Height, int32 Pitch)
@@ -202,6 +240,23 @@ void UStarflightEmulatorSubsystem::BroadcastRotoscope(const uint8* BGRA, int32 W
 		if (Entry.Callback)
 		{
 			Entry.Callback(BGRA, Width, Height, Pitch);
+		}
+	}
+}
+
+void UStarflightEmulatorSubsystem::BroadcastRotoscopeMeta(const FStarflightRotoTexel* Texels, int32 Width, int32 Height)
+{
+	TArray<FStarflightRotoMetaListenerEntry> LocalListeners;
+	{
+		FScopeLock Lock(&RotoMetaListenersMutex);
+		LocalListeners = RotoMetaListeners;
+	}
+
+	for (const FStarflightRotoMetaListenerEntry& Entry : LocalListeners)
+	{
+		if (Entry.Callback)
+		{
+			Entry.Callback(Texels, Width, Height);
 		}
 	}
 }
