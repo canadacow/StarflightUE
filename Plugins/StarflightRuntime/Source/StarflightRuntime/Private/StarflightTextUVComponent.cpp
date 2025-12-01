@@ -5,12 +5,18 @@
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
 #include "HAL/CriticalSection.h"
+#include "HAL/FileManager.h"
+#include "ImageCore.h"
+#include "ImageUtils.h"
+#include "Misc/Paths.h"
 #include "Misc/ScopeLock.h"
 #include "RenderingThread.h"
 #include "Templates/SharedPointer.h"
 #include "StarflightEmulatorSubsystem.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogStarflightTextUV, Log, All);
 
 namespace
 {
@@ -214,8 +220,8 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 	TArray<uint8> ContentFontCharFlagsData;
 	ContentFontCharFlagsData.SetNumUninitialized(GRotoSourcePixelCount * 4);
 
-	TArray<float> GlyphXYWHData;
-	GlyphXYWHData.SetNumUninitialized(GRotoSourcePixelCount * 4);
+	TArray<FLinearColor> GlyphXYWHData;
+	GlyphXYWHData.SetNumUninitialized(GRotoSourcePixelCount);
 
 	TArray<uint8> FGBGColorData;
 	FGBGColorData.SetNumUninitialized(GRotoSourcePixelCount * 2);
@@ -258,11 +264,7 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 		ContentFontCharFlagsData[ContentOffset + 2] = Texel.Character;
 		ContentFontCharFlagsData[ContentOffset + 3] = Texel.Flags;
 
-		const int32 GlyphOffset = Index * 4;
-		GlyphXYWHData[GlyphOffset + 0] = Texel.GlyphX;
-		GlyphXYWHData[GlyphOffset + 1] = Texel.GlyphY;
-		GlyphXYWHData[GlyphOffset + 2] = Texel.GlyphWidth;
-		GlyphXYWHData[GlyphOffset + 3] = Texel.GlyphHeight;
+		GlyphXYWHData[Index] = FLinearColor(Texel.GlyphX, Texel.GlyphY, Texel.GlyphWidth, Texel.GlyphHeight);
 
 		const int32 ColorOffset = Index * 2;
 		FGBGColorData[ColorOffset + 0] = Texel.FGColor;
@@ -279,9 +281,11 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 	FTextureResource* ColorResource = RotoResourceFGBGColor->GetResource();
 	checkf(ColorResource, TEXT("RotoResourceFGBGColor missing resource"));
 
+	DumpTexturesToExr(PixelData, ContentFontCharFlagsData, GlyphXYWHData, FGBGColorData, DestW, DestH);
+
 	TSharedPtr<TArray<FFloat16Color>, ESPMode::ThreadSafe> Buffer = MakeShared<TArray<FFloat16Color>, ESPMode::ThreadSafe>(MoveTemp(PixelData));
 	TSharedPtr<TArray<uint8>, ESPMode::ThreadSafe> ContentBuffer = MakeShared<TArray<uint8>, ESPMode::ThreadSafe>(MoveTemp(ContentFontCharFlagsData));
-	TSharedPtr<TArray<float>, ESPMode::ThreadSafe> GlyphBuffer = MakeShared<TArray<float>, ESPMode::ThreadSafe>(MoveTemp(GlyphXYWHData));
+	TSharedPtr<TArray<FLinearColor>, ESPMode::ThreadSafe> GlyphBuffer = MakeShared<TArray<FLinearColor>, ESPMode::ThreadSafe>(MoveTemp(GlyphXYWHData));
 	TSharedPtr<TArray<uint8>, ESPMode::ThreadSafe> FGBGBuffer = MakeShared<TArray<uint8>, ESPMode::ThreadSafe>(MoveTemp(FGBGColorData));
 
 	const FTexture2DRHIRef ContentTextureRHI = ContentResource->GetTexture2DRHI();
@@ -320,7 +324,7 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 			const uint32 ContentPitch = GRotoSourceWidth * sizeof(uint8) * 4;
 			RHICmdList.UpdateTexture2D(ContentTextureRHI, 0, RotoRegion, ContentPitch, ContentBuffer->GetData());
 
-			const uint32 GlyphPitch = GRotoSourceWidth * sizeof(float) * 4;
+			const uint32 GlyphPitch = GRotoSourceWidth * sizeof(FLinearColor);
 			RHICmdList.UpdateTexture2D(GlyphTextureRHI, 0, RotoRegion, GlyphPitch, reinterpret_cast<const uint8*>(GlyphBuffer->GetData()));
 
 			const uint32 ColorPitch = GRotoSourceWidth * sizeof(uint8) * 2;
@@ -328,5 +332,74 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 		});
 
 	ProcessedRevision = LocalRevision;
+}
+
+void UStarflightTextUVComponent::DumpTexturesToExr(const TArray<FFloat16Color>& UVData, const TArray<uint8>& ContentData, const TArray<FLinearColor>& GlyphData, const TArray<uint8>& FGBGColorData, int32 DestW, int32 DestH)
+{
+	if (!bDumpTexturesEachFrame)
+	{
+		return;
+	}
+
+	const FString BaseDir = ResolveDumpDirectory();
+	if (BaseDir.IsEmpty())
+	{
+		UE_LOG(LogStarflightTextUV, Warning, TEXT("Texture dump directory is empty; skipping EXR write"));
+		return;
+	}
+
+	if (!IFileManager::Get().MakeDirectory(*BaseDir, true))
+	{
+		UE_LOG(LogStarflightTextUV, Warning, TEXT("Failed to create texture dump directory: %s"), *BaseDir);
+		return;
+	}
+
+	const uint64 FrameIndex = DumpFrameCounter++;
+
+	auto SaveImage = [&](const FString& Label, FImageView& View, const TCHAR* Extension)
+	{
+		const FString FileName = FString::Printf(TEXT("Starflight_%s_%06llu.%s"), *Label, FrameIndex, Extension);
+		const FString FullPath = FPaths::Combine(BaseDir, FileName);
+		if (!FImageUtils::SaveImageByExtension(*FullPath, View, 0))
+		{
+			UE_LOG(LogStarflightTextUV, Warning, TEXT("Failed to save %s"), *FullPath);
+		}
+	};
+
+	FImageView UVView(const_cast<FFloat16Color*>(UVData.GetData()), DestW, DestH, ERawImageFormat::RGBA16F);
+	SaveImage(TEXT("TextUV"), UVView, TEXT("exr"));
+
+	FImageView ContentView(const_cast<uint8*>(ContentData.GetData()), GRotoSourceWidth, GRotoSourceHeight, ERawImageFormat::BGRA8);
+	SaveImage(TEXT("ContentFontCharFlags"), ContentView, TEXT("png"));
+
+	FImageView GlyphView(const_cast<FLinearColor*>(GlyphData.GetData()), GRotoSourceWidth, GRotoSourceHeight, ERawImageFormat::RGBA32F);
+	SaveImage(TEXT("GlyphXYWH"), GlyphView, TEXT("exr"));
+
+	TArray<uint8> ExpandedFGBGData;
+	ExpandedFGBGData.SetNumUninitialized(GRotoSourcePixelCount * 4);
+	for (int32 Index = 0; Index < GRotoSourcePixelCount; ++Index)
+	{
+		const int32 SrcOffset = Index * 2;
+		const int32 DestOffset = Index * 4;
+		ExpandedFGBGData[DestOffset + 0] = FGBGColorData[SrcOffset + 0];
+		ExpandedFGBGData[DestOffset + 1] = FGBGColorData[SrcOffset + 1];
+		ExpandedFGBGData[DestOffset + 2] = 0;
+		ExpandedFGBGData[DestOffset + 3] = 255;
+	}
+
+	FImageView FGBGView(ExpandedFGBGData.GetData(), GRotoSourceWidth, GRotoSourceHeight, ERawImageFormat::BGRA8);
+	SaveImage(TEXT("FGBGColor"), FGBGView, TEXT("png"));
+}
+
+FString UStarflightTextUVComponent::ResolveDumpDirectory() const
+{
+	FString Directory = TextureDumpDirectory;
+	if (Directory.IsEmpty())
+	{
+		Directory = TEXT("C:/Temp");
+	}
+
+	FPaths::NormalizeFilename(Directory);
+	return FPaths::ConvertRelativePathToFull(Directory);
 }
 

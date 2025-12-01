@@ -51,11 +51,21 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Starflight|TextUV", meta = (AllowPrivateAccess = "true"))
 	UTexture2D* RotoResourceFGBGColor = nullptr;
 
+	/** When true, write EXR files for each generated texture every frame. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Starflight|Debug", meta = (AllowPrivateAccess = "true"))
+	bool bDumpTexturesEachFrame = false;
+
+	/** Directory that receives per-frame EXR dumps (defaults to C:/Temp). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Starflight|Debug", meta = (AllowPrivateAccess = "true", EditCondition = "bDumpTexturesEachFrame"))
+	FString TextureDumpDirectory = TEXT("C:/Temp");
+
 private:
 	void HandleRotoscopeMeta(const FStarflightRotoTexel* Texels, int32 Width, int32 Height);
 	void UpdateUVTexture();
 	void InitializeRenderTarget();
 	void InitializeRotoDataResources();
+	void DumpTexturesToExr(const TArray<FFloat16Color>& UVData, const TArray<uint8>& ContentData, const TArray<FLinearColor>& GlyphData, const TArray<uint8>& FGBGColorData, int32 DestW, int32 DestH);
+	FString ResolveDumpDirectory() const;
 
 	TWeakObjectPtr<UStarflightEmulatorSubsystem> EmulatorSubsystem;
 	FDelegateHandle MetaListenerHandle;
@@ -68,5 +78,6 @@ private:
 	uint64 ProcessedRevision = 0;
 
 	bool bRenderTargetInitialized = false;
+	uint64 DumpFrameCounter = 0;
 };
 

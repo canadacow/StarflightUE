@@ -48,7 +48,8 @@ public class StarflightRuntime : ModuleRules
             "Slate",
             "SlateCore",
             "AudioMixer",
-            "InputCore"
+            "InputCore",
+            "ImageCore"
         });
 
         // Disable unity build for emulator files to avoid symbol conflicts
