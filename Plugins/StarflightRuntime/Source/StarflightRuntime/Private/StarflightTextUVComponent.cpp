@@ -126,19 +126,19 @@ void UStarflightTextUVComponent::InitializeRotoDataResources()
 
 	if (!RotoResourceContentFontCharFlags)
 	{
-		RotoResourceContentFontCharFlags = UTexture2D::CreateTransient(GRotoSourceWidth, GRotoSourceHeight, PF_R8G8B8A8);
+		RotoResourceContentFontCharFlags = UTexture2D::CreateTransient(GRotoSourceWidth, GRotoSourceHeight, PF_R8G8B8A8_UINT);
 		ConfigureDataTexture(RotoResourceContentFontCharFlags, TEXT("RotoResourceContentFontCharFlags"));
 	}
 
 	if (!RotoResourceGlyphXYWH)
 	{
-		RotoResourceGlyphXYWH = UTexture2D::CreateTransient(GRotoSourceWidth, GRotoSourceHeight, PF_R16G16B16A16_UINT);
+		RotoResourceGlyphXYWH = UTexture2D::CreateTransient(GRotoSourceWidth, GRotoSourceHeight, PF_A32B32G32R32F);
 		ConfigureDataTexture(RotoResourceGlyphXYWH, TEXT("RotoResourceGlyphXYWH"));
 	}
 
 	if (!RotoResourceFGBGColor)
 	{
-		RotoResourceFGBGColor = UTexture2D::CreateTransient(GRotoSourceWidth, GRotoSourceHeight, PF_R8G8);
+		RotoResourceFGBGColor = UTexture2D::CreateTransient(GRotoSourceWidth, GRotoSourceHeight, PF_R8G8_UINT);
 		ConfigureDataTexture(RotoResourceFGBGColor, TEXT("RotoResourceFGBGColor"));
 	}
 }
@@ -214,7 +214,7 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 	TArray<uint8> ContentFontCharFlagsData;
 	ContentFontCharFlagsData.SetNumUninitialized(GRotoSourcePixelCount * 4);
 
-	TArray<uint16> GlyphXYWHData;
+	TArray<float> GlyphXYWHData;
 	GlyphXYWHData.SetNumUninitialized(GRotoSourcePixelCount * 4);
 
 	TArray<uint8> FGBGColorData;
@@ -259,10 +259,10 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 		ContentFontCharFlagsData[ContentOffset + 3] = Texel.Flags;
 
 		const int32 GlyphOffset = Index * 4;
-		GlyphXYWHData[GlyphOffset + 0] = static_cast<uint16>(Texel.GlyphX);
-		GlyphXYWHData[GlyphOffset + 1] = static_cast<uint16>(Texel.GlyphY);
-		GlyphXYWHData[GlyphOffset + 2] = static_cast<uint16>(Texel.GlyphWidth);
-		GlyphXYWHData[GlyphOffset + 3] = static_cast<uint16>(Texel.GlyphHeight);
+		GlyphXYWHData[GlyphOffset + 0] = Texel.GlyphX;
+		GlyphXYWHData[GlyphOffset + 1] = Texel.GlyphY;
+		GlyphXYWHData[GlyphOffset + 2] = Texel.GlyphWidth;
+		GlyphXYWHData[GlyphOffset + 3] = Texel.GlyphHeight;
 
 		const int32 ColorOffset = Index * 2;
 		FGBGColorData[ColorOffset + 0] = Texel.FGColor;
@@ -281,7 +281,7 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 
 	TSharedPtr<TArray<FFloat16Color>, ESPMode::ThreadSafe> Buffer = MakeShared<TArray<FFloat16Color>, ESPMode::ThreadSafe>(MoveTemp(PixelData));
 	TSharedPtr<TArray<uint8>, ESPMode::ThreadSafe> ContentBuffer = MakeShared<TArray<uint8>, ESPMode::ThreadSafe>(MoveTemp(ContentFontCharFlagsData));
-	TSharedPtr<TArray<uint16>, ESPMode::ThreadSafe> GlyphBuffer = MakeShared<TArray<uint16>, ESPMode::ThreadSafe>(MoveTemp(GlyphXYWHData));
+	TSharedPtr<TArray<float>, ESPMode::ThreadSafe> GlyphBuffer = MakeShared<TArray<float>, ESPMode::ThreadSafe>(MoveTemp(GlyphXYWHData));
 	TSharedPtr<TArray<uint8>, ESPMode::ThreadSafe> FGBGBuffer = MakeShared<TArray<uint8>, ESPMode::ThreadSafe>(MoveTemp(FGBGColorData));
 
 	const FTexture2DRHIRef ContentTextureRHI = ContentResource->GetTexture2DRHI();
@@ -320,7 +320,7 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 			const uint32 ContentPitch = GRotoSourceWidth * sizeof(uint8) * 4;
 			RHICmdList.UpdateTexture2D(ContentTextureRHI, 0, RotoRegion, ContentPitch, ContentBuffer->GetData());
 
-			const uint32 GlyphPitch = GRotoSourceWidth * sizeof(uint16) * 4;
+			const uint32 GlyphPitch = GRotoSourceWidth * sizeof(float) * 4;
 			RHICmdList.UpdateTexture2D(GlyphTextureRHI, 0, RotoRegion, GlyphPitch, reinterpret_cast<const uint8*>(GlyphBuffer->GetData()));
 
 			const uint32 ColorPitch = GRotoSourceWidth * sizeof(uint8) * 2;

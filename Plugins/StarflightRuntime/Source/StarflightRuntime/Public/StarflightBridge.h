@@ -47,10 +47,10 @@ struct FStarflightRotoTexel
 	uint8_t FontNumber;   // 0 if not text
 	uint8_t Character;    // Raw CP437 character
 	uint8_t Flags;        // Bit 0 = XOR
-	int16_t GlyphX;       // Pixel offset within glyph bitmap
-	int16_t GlyphY;
-	int16_t GlyphWidth;
-	int16_t GlyphHeight;
+	float GlyphX;         // Pixel offset within glyph bitmap
+	float GlyphY;
+	float GlyphWidth;
+	float GlyphHeight;
 	uint8_t FGColor;      // EGA color index
 	uint8_t BGColor;
 	uint8_t Reserved0;

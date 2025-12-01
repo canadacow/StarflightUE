@@ -43,7 +43,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Starflight|TextUV", meta = (AllowPrivateAccess = "true"))
 	UTexture2D* RotoResourceContentFontCharFlags = nullptr;
 
-	/** Packed GlyphX|GlyphY|GlyphWidth|GlyphHeight data (RGBA16, 160x200). */
+	/** Packed GlyphX|GlyphY|GlyphWidth|GlyphHeight data (RGBA32F, 160x200). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Starflight|TextUV", meta = (AllowPrivateAccess = "true"))
 	UTexture2D* RotoResourceGlyphXYWH = nullptr;
 
