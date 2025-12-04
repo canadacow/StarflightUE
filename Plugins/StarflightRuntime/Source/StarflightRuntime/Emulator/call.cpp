@@ -60,6 +60,7 @@ static void SF_Log(const char* Format, ...)
 // Writes to call_trace.txt so it can be tailed externally.
 static void SF_FastCallTrace(unsigned short addr, unsigned short bx, const char* overlayName, unsigned short forthIp)
 {
+#if 0
 	static int s_fd = -1;
 	if (s_fd == -1)
 	{
@@ -76,6 +77,7 @@ static void SF_FastCallTrace(unsigned short addr, unsigned short bx, const char*
 			_write(s_fd, buf, len);
 		}
 	}
+#endif
 }
 
 #include "starsystem.h"
