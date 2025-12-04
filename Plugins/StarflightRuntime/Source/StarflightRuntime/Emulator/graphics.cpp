@@ -112,6 +112,7 @@ static void EmitRotoscopeBuffers()
 			meta.FontNumber = rs.textData.fontNum;
 			meta.Character = static_cast<uint8_t>(rs.textData.character);
 			meta.Flags = rs.textData.xormode;
+			meta.ARGB = rs.argb;
 			meta.GlyphX = static_cast<float>(rs.blt_x);
 			meta.GlyphY = static_cast<float>(rs.blt_y);
 			meta.GlyphWidth = static_cast<float>(rs.blt_w);

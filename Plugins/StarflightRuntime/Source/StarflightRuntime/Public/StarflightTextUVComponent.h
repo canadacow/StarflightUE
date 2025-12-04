@@ -64,7 +64,7 @@ private:
 	void UpdateUVTexture();
 	void InitializeRenderTarget();
 	void InitializeRotoDataResources();
-	void DumpTexturesToExr(const TArray<FFloat16Color>& UVData, const TArray<uint8>& ContentData, const TArray<FLinearColor>& GlyphData, const TArray<uint8>& FGBGColorData, int32 DestW, int32 DestH);
+	void DumpTexturesToExr(const TArray<FFloat16Color>& UVData, const TArray<uint8>& ContentData, const TArray<FLinearColor>& GlyphData, const TArray<uint8>& FGBGColorData, const TArray<uint8>& ARGBColorData, int32 DestW, int32 DestH);
 	FString ResolveDumpDirectory() const;
 
 	TWeakObjectPtr<UStarflightEmulatorSubsystem> EmulatorSubsystem;

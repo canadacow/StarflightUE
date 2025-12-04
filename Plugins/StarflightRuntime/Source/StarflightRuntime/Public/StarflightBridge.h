@@ -47,6 +47,7 @@ struct FStarflightRotoTexel
 	uint8_t FontNumber;   // 0 if not text
 	uint8_t Character;    // Raw CP437 character
 	uint8_t Flags;        // Bit 0 = XOR
+	uint32_t ARGB;        // Actual pixel color written by the emulator (0x00RRGGBB)
 	float GlyphX;         // Pixel offset within glyph bitmap
 	float GlyphY;
 	float GlyphWidth;

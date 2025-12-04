@@ -226,6 +226,9 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 	TArray<uint8> FGBGColorData;
 	FGBGColorData.SetNumUninitialized(GRotoSourcePixelCount * 2);
 
+	TArray<uint8> ARGBColorData;
+	ARGBColorData.SetNumUninitialized(GRotoSourcePixelCount * 4);
+
 	for (int32 y = 0; y < DestH; ++y)
 	{
 		const int32 SrcY = FMath::Clamp(FMath::FloorToInt(y * ScaleY), 0, LocalHeight - 1);
@@ -269,6 +272,13 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 		const int32 ColorOffset = Index * 2;
 		FGBGColorData[ColorOffset + 0] = Texel.FGColor;
 		FGBGColorData[ColorOffset + 1] = Texel.BGColor;
+
+		const uint32 TexelColor = Texel.ARGB;
+		const int32 ARGBOffset = Index * 4;
+		ARGBColorData[ARGBOffset + 0] = static_cast<uint8>((TexelColor >> 0) & 0xFF);   // B
+		ARGBColorData[ARGBOffset + 1] = static_cast<uint8>((TexelColor >> 8) & 0xFF);   // G
+		ARGBColorData[ARGBOffset + 2] = static_cast<uint8>((TexelColor >> 16) & 0xFF);  // R
+		ARGBColorData[ARGBOffset + 3] = 0xFF; // Force opaque alpha for visualization
 	}
 
 	FTextureRenderTargetResource* Resource = TextUVRenderTarget->GameThread_GetRenderTargetResource();
@@ -281,7 +291,7 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 	FTextureResource* ColorResource = RotoResourceFGBGColor->GetResource();
 	checkf(ColorResource, TEXT("RotoResourceFGBGColor missing resource"));
 
-	DumpTexturesToExr(PixelData, ContentFontCharFlagsData, GlyphXYWHData, FGBGColorData, DestW, DestH);
+	DumpTexturesToExr(PixelData, ContentFontCharFlagsData, GlyphXYWHData, FGBGColorData, ARGBColorData, DestW, DestH);
 
 	TSharedPtr<TArray<FFloat16Color>, ESPMode::ThreadSafe> Buffer = MakeShared<TArray<FFloat16Color>, ESPMode::ThreadSafe>(MoveTemp(PixelData));
 	TSharedPtr<TArray<uint8>, ESPMode::ThreadSafe> ContentBuffer = MakeShared<TArray<uint8>, ESPMode::ThreadSafe>(MoveTemp(ContentFontCharFlagsData));
@@ -334,7 +344,7 @@ void UStarflightTextUVComponent::UpdateUVTexture()
 	ProcessedRevision = LocalRevision;
 }
 
-void UStarflightTextUVComponent::DumpTexturesToExr(const TArray<FFloat16Color>& UVData, const TArray<uint8>& ContentData, const TArray<FLinearColor>& GlyphData, const TArray<uint8>& FGBGColorData, int32 DestW, int32 DestH)
+void UStarflightTextUVComponent::DumpTexturesToExr(const TArray<FFloat16Color>& UVData, const TArray<uint8>& ContentData, const TArray<FLinearColor>& GlyphData, const TArray<uint8>& FGBGColorData, const TArray<uint8>& ARGBColorData, int32 DestW, int32 DestH)
 {
 	if (!bDumpTexturesEachFrame)
 	{
@@ -389,6 +399,9 @@ void UStarflightTextUVComponent::DumpTexturesToExr(const TArray<FFloat16Color>& 
 
 	FImageView FGBGView(ExpandedFGBGData.GetData(), GRotoSourceWidth, GRotoSourceHeight, ERawImageFormat::BGRA8);
 	SaveImage(TEXT("FGBGColor"), FGBGView, TEXT("png"));
+
+	FImageView ARGBView(const_cast<uint8*>(ARGBColorData.GetData()), GRotoSourceWidth, GRotoSourceHeight, ERawImageFormat::BGRA8);
+	SaveImage(TEXT("RotoARGB"), ARGBView, TEXT("png"));
 }
 
 FString UStarflightTextUVComponent::ResolveDumpDirectory() const
