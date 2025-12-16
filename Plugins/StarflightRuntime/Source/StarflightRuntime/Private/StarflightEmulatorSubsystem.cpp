@@ -2,7 +2,9 @@
 
 #include "StarflightBridge.h"
 #include "Engine/GameInstance.h"
+#include "Engine/World.h"
 #include "Misc/ScopeLock.h"
+#include "Misc/PackageName.h"
 #include "Async/Async.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightEmulatorSubsystem, Log, All);
@@ -31,6 +33,30 @@ namespace
 		case FStarflightEmulatorState::GameOps:                  return TEXT("GameOps");
 		default:                                                 return TEXT("Unknown");
 		}
+	}
+
+	static bool ShouldAutoStartEmulatorForWorld(const UWorld* World)
+	{
+		if (!World)
+		{
+			return false;
+		}
+
+#if WITH_EDITOR
+		// In editor sessions, only auto-start when PIE-ing the ComputerRoom map.
+		if (World->WorldType != EWorldType::PIE)
+		{
+			return false;
+		}
+
+		FString CleanMap = World->GetMapName();
+		CleanMap = UWorld::RemovePIEPrefix(CleanMap);
+		CleanMap = FPackageName::GetShortName(CleanMap);
+		return CleanMap.Equals(TEXT("ComputerRoom"), ESearchCase::IgnoreCase);
+#else
+		// In non-editor builds, auto-start normally.
+		return true;
+#endif
 	}
 }
 
@@ -80,10 +106,17 @@ void UStarflightEmulatorSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 		});
 	});
 
-	StartStarflight();
-	bEmulatorRunning.Store(true);
-
-	UE_LOG(LogStarflightEmulatorSubsystem, Log, TEXT("Starflight emulator subsystem initialized and emulator started."));
+	if (ShouldAutoStartEmulatorForWorld(GetWorld()))
+	{
+		StartStarflight();
+		bEmulatorRunning.Store(true);
+		UE_LOG(LogStarflightEmulatorSubsystem, Log, TEXT("Starflight emulator subsystem initialized and emulator started."));
+	}
+	else
+	{
+		bEmulatorRunning.Store(false);
+		UE_LOG(LogStarflightEmulatorSubsystem, Log, TEXT("Starflight emulator subsystem initialized (emulator NOT auto-started for this map/session)."));
+	}
 }
 
 void UStarflightEmulatorSubsystem::Deinitialize()
