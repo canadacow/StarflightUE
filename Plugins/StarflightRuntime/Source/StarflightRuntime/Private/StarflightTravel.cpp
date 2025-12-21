@@ -4,6 +4,7 @@
 
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/PackageName.h"
@@ -33,6 +34,16 @@ namespace
 	static UWorld* ResolveBestGameWorldOrDie()
 	{
 		checkf(GEngine, TEXT("ResolveBestGameWorldOrDie: GEngine is null."));
+
+		// Prefer the active game viewport world if available. After OpenLevel/level travel,
+		// this is the most deterministic way to get the current world for "tab back".
+		if (GEngine->GameViewport)
+		{
+			if (UWorld* ViewportWorld = GEngine->GameViewport->GetWorld())
+			{
+				return ViewportWorld;
+			}
+		}
 
 		UWorld* CandidatePIE = nullptr;
 		UWorld* CandidateGame = nullptr;

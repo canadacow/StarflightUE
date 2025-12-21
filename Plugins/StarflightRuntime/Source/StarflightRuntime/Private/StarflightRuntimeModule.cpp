@@ -9,6 +9,7 @@
 #include "StarflightInputPreprocessor.h"
 
 #include "Framework/Application/SlateApplication.h"
+#include "Misc/CoreDelegates.h"
 #include "Templates/SharedPointer.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStarflightModule, Log, All);
@@ -30,15 +31,25 @@ public:
 
 		// Register a global input preprocessor so Tab travel works even when a non-Starflight
 		// PlayerController is active (e.g., FirstPerson feature pack controllers).
-		if (FSlateApplication::IsInitialized())
+		TryRegisterInputPreprocessor();
+
+		// Slate may not be initialized yet at module startup depending on engine/editor phase.
+		// Defer registration to PostEngineInit to keep module startup safe and predictable.
+		if (!InputPreprocessor.IsValid())
 		{
-			InputPreprocessor = MakeShared<FStarflightInputPreprocessor>();
-			FSlateApplication::Get().RegisterInputPreProcessor(InputPreprocessor);
+			PostEngineInitHandle = FCoreDelegates::OnPostEngineInit.AddRaw(
+				this, &FStarflightRuntimeModule::TryRegisterInputPreprocessor);
 		}
 	}
 
     virtual void ShutdownModule() override
     {
+		if (PostEngineInitHandle.IsValid())
+		{
+			FCoreDelegates::OnPostEngineInit.Remove(PostEngineInitHandle);
+			PostEngineInitHandle.Reset();
+		}
+
 		if (InputPreprocessor.IsValid() && FSlateApplication::IsInitialized())
 		{
 			FSlateApplication::Get().UnregisterInputPreProcessor(InputPreprocessor);
@@ -51,6 +62,29 @@ public:
 
 private:
 	TSharedPtr<FStarflightInputPreprocessor> InputPreprocessor;
+	FDelegateHandle PostEngineInitHandle;
+
+	void TryRegisterInputPreprocessor()
+	{
+		if (InputPreprocessor.IsValid())
+		{
+			return;
+		}
+
+		if (!FSlateApplication::IsInitialized())
+		{
+			return;
+		}
+
+		InputPreprocessor = MakeShared<FStarflightInputPreprocessor>();
+		FSlateApplication::Get().RegisterInputPreProcessor(InputPreprocessor);
+
+		if (PostEngineInitHandle.IsValid())
+		{
+			FCoreDelegates::OnPostEngineInit.Remove(PostEngineInitHandle);
+			PostEngineInitHandle.Reset();
+		}
+	}
 };
 
 IMPLEMENT_MODULE(FStarflightRuntimeModule, StarflightRuntime)
