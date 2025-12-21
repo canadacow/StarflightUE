@@ -3,6 +3,7 @@
 #include "StarflightRuntime/Public/StarflightInput.h"
 #include "StarflightRuntime/Public/StarflightBridge.h"
 #include "StarflightRuntime/Public/StarflightEmulatorSubsystem.h"
+#include "StarflightRuntime/Public/StarflightTravel.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Blueprint/UserWidget.h"
 #include "StarflightMainMenuWidget.h"
@@ -61,11 +62,15 @@ bool AStarflightPlayerController::InputKey(const FInputKeyEventArgs& EventArgs)
     const FKey Key = EventArgs.Key;
     const bool bPressed = (EventArgs.Event == IE_Pressed || EventArgs.Event == IE_Repeat);
 
-    // Toggle camera/view target with Tab (switch between default view and StationCamera)
+    // Tab: Station travel (ComputerRoom <-> FirstPersonStation). This is also handled globally via
+    // a Slate input preprocessor, but we keep it here as a deterministic fallback.
     if (bPressed && Key == EKeys::Tab)
     {
-        ToggleStationCamera();
-        return true;
+        if (StarflightTravel::HandleStationTabTravel(GetWorld()))
+        {
+            return true;
+        }
+        // Not handled (e.g., not in Station): let normal input flow continue.
     }
 
     // Toggle main menu with Escape
